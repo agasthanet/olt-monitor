@@ -1,0 +1,36 @@
+[
+  {
+    "id": "olt-karjay",
+    "name": "OLT-KARJAY",
+    "ip": "172.16.2.3",
+    "community": "SNMPWRITE",
+    "port": 161,
+    "boards": [
+      1,
+      2
+    ],
+    "firmware": "auto",
+    "vendor": "hioso",
+    "username": "admin",
+    "password": "",
+    "protocol": "telnet",
+    "cli_port": 23
+  },
+  {
+    "id": "olt-warjak",
+    "name": "OLT-WARJAK",
+    "ip": "172.16.8.3",
+    "community": "SNMPWRITE",
+    "port": 161,
+    "boards": [
+      1,
+      2
+    ],
+    "firmware": "auto",
+    "vendor": "hioso",
+    "username": "admin",
+    "password": "",
+    "protocol": "telnet",
+    "cli_port": 23
+  }
+]

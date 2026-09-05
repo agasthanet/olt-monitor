@@ -1,0 +1,250 @@
+{% extends "base.html" %}
+{% block title %}Settings - OLT MONITOR{% endblock %}
+
+{% block content %}
+<div class="row">
+  <div class="col-lg-5 mb-4">
+    <div class="card shadow-sm">
+      <div class="card-header bg-white">
+        <h5 class="mb-0"><i class="bi bi-plus-circle"></i> Tambah / Edit OLT</h5>
+      </div>
+      <div class="card-body">
+        <form method="post">
+          <input type="hidden" name="action" value="save_olt">
+          <input type="hidden" name="edit_id" value="{{ edit.id if edit else '' }}">
+
+          <div class="mb-3">
+            <label class="form-label">ID (unik, tanpa spasi)</label>
+            <input type="text" name="id" class="form-control" required
+                   value="{{ edit.id if edit else '' }}"
+                   placeholder="olt1" {% if edit %}readonly{% endif %}>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Nama</label>
+            <input type="text" name="name" class="form-control" required
+                   value="{{ edit.name if edit else '' }}" placeholder="OLT-Main">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">IP OLT</label>
+            <input type="text" name="ip" class="form-control" required
+                   value="{{ edit.ip if edit else '' }}" placeholder="172.27.85.146">
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Vendor / Tipe OLT</label>
+            <select name="vendor" class="form-select" id="vendorSelect" onchange="toggleVendorFields()">
+              {% set ven = edit.vendor if edit and edit.vendor else 'auto' %}
+              <option value="auto" {% if ven=='auto' %}selected{% endif %}>Auto (sysDescr / SNMP)</option>
+              <option value="zte" {% if ven=='zte' %}selected{% endif %}>ZTE C320 (SNMP)</option>
+              <option value="hioso" {% if ven=='hioso' %}selected{% endif %}>Hioso (SNMP)</option>
+              <option value="hsairpo" {% if ven=='hsairpo' %}selected{% endif %}>HS Airpo / VSOL (SNMP)</option>
+              <option value="hsairpo-cli" {% if ven=='hsairpo-cli' %}selected{% endif %}>HS-EPT1004 / Airpo (CLI Telnet/SSH)</option>
+            </select>
+          </div>
+
+          <div id="snmpFields">
+            <div class="alert alert-secondary py-2 small mb-2">Mode SNMP: community string</div>
+            <div class="mb-3">
+              <label class="form-label">SNMP Community</label>
+              <input type="text" name="community" class="form-control"
+                     value="{{ edit.community if edit else 'public' }}">
+            </div>
+            <div class="row">
+              <div class="col-6 mb-3">
+                <label class="form-label">Port SNMP</label>
+                <input type="number" name="port" class="form-control"
+                       value="{{ edit.port if edit else 161 }}">
+              </div>
+              <div class="col-6 mb-3">
+                <label class="form-label">Boards (slot)</label>
+                <input type="text" name="boards" class="form-control"
+                       value="{{ edit.boards|join(',') if edit and edit.boards else '1,2' }}"
+                       placeholder="1,2">
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Firmware / Varian</label>
+              <select name="firmware" class="form-select">
+                {% set fw = edit.firmware if edit and edit.firmware else 'auto' %}
+                <option value="auto" {% if fw=='auto' %}selected{% endif %}>Auto Detect</option>
+                <option value="v1" {% if fw=='v1' %}selected{% endif %}>V1</option>
+                <option value="v2" {% if fw=='v2' %}selected{% endif %}>V2</option>
+                <option value="epon" {% if fw=='epon' %}selected{% endif %}>EPON (Hioso)</option>
+                <option value="gpon" {% if fw=='gpon' %}selected{% endif %}>GPON (Hioso)</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="cliFields" style="display:none;">
+            <div class="alert alert-info py-2 small mb-2">
+              Mode CLI: login Telnet/SSH lalu jalankan <code>show ont info</code> / <code>optical-info</code>
+            </div>
+            <div class="row">
+              <div class="col-6 mb-3">
+                <label class="form-label">Protocol</label>
+                <select name="protocol" class="form-select" id="protoSelect" onchange="syncCliPort()">
+                  {% set proto = edit.protocol if edit and edit.protocol else 'telnet' %}
+                  <option value="telnet" {% if proto=='telnet' %}selected{% endif %}>Telnet</option>
+                  <option value="ssh" {% if proto=='ssh' %}selected{% endif %}>SSH</option>
+                </select>
+              </div>
+              <div class="col-6 mb-3">
+                <label class="form-label">Port CLI</label>
+                <input type="number" name="cli_port" id="cliPort" class="form-control"
+                       value="{{ edit.cli_port if edit and edit.cli_port else 23 }}">
+              </div>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Username CLI</label>
+              <input type="text" name="username" class="form-control"
+                     value="{{ edit.username if edit and edit.username else 'admin' }}">
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Password CLI</label>
+              <input type="password" name="password" class="form-control"
+                     value="{{ edit.password if edit and edit.password else '' }}"
+                     placeholder="password login OLT" autocomplete="new-password">
+            </div>
+          </div>
+
+          <button type="submit" class="btn btn-primary">
+            <i class="bi bi-save"></i> {{ 'Update OLT' if edit else 'Tambah OLT' }}
+          </button>
+          {% if edit %}
+          <a href="{{ url_for('settings') }}" class="btn btn-outline-secondary">Batal</a>
+          {% endif %}
+        </form>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-3 border-{{ 'success' if license_mode == 'full' else 'warning' }}">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h6 class="mb-0"><i class="bi bi-key"></i> License</h6>
+        {% if license_mode == 'full' %}
+        <span class="badge bg-success">FULL</span>
+        {% else %}
+        <span class="badge bg-warning text-dark">TRIAL</span>
+        {% endif %}
+      </div>
+      <div class="card-body">
+        <p class="mb-1 small">Mode: <strong>{{ license_mode|upper }}</strong> — max <strong>{{ license_max_olts }}</strong> OLT</p>
+        <p class="mb-2 small">HWID mesin ini:</p>
+        <div class="input-group input-group-sm mb-3">
+          <input type="text" class="form-control font-monospace" id="hwidBox" readonly value="{{ license_hwid }}">
+          <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('hwidBox').value)">Copy</button>
+        </div>
+        {% if license_mode == 'full' %}
+        <p class="small text-success mb-2">Aktif sejak: {{ license_info.activated_at or '-' }}</p>
+        <form method="post" onsubmit="return confirm('Kembali ke Trial?')">
+          <input type="hidden" name="action" value="deactivate_license">
+          <button type="submit" class="btn btn-sm btn-outline-warning">Deaktivasi (Trial)</button>
+        </form>
+        {% else %}
+        <p class="small text-muted">Trial: hanya 1 OLT. Kirim HWID ke admin untuk key Full (multi-OLT).</p>
+        <form method="post">
+          <input type="hidden" name="action" value="activate_license">
+          <label class="form-label small">License Key</label>
+          <input type="text" name="license_key" class="form-control form-control-sm mb-2" placeholder="FULL-XXXXX-XXXXX-XXXXX-XXXXX" required>
+          <button type="submit" class="btn btn-sm btn-success">Aktivasi Full</button>
+        </form>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-white"><h6 class="mb-0">Opsi global</h6></div>
+      <div class="card-body">
+        <form method="post">
+          <input type="hidden" name="action" value="save_global">
+          <div class="form-check form-switch mb-3">
+            <input class="form-check-input" type="checkbox" name="demo_mode" id="demo"
+                   {% if demo %}checked{% endif %}>
+            <label class="form-check-label" for="demo">Demo Mode</label>
+          </div>
+          <button type="submit" class="btn btn-sm btn-outline-primary">Simpan</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-7">
+    <div class="card shadow-sm">
+      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-hdd-network"></i> Daftar OLT</h5>
+        <span class="badge bg-secondary">{{ olts|length }} OLT</span>
+      </div>
+      <div class="card-body p-0">
+        <div class="table-responsive">
+          <table class="table table-hover mb-0">
+            <thead class="table-light">
+              <tr>
+                <th>ID</th>
+                <th>Nama</th>
+                <th>IP</th>
+                <th>Akses</th>
+                <th>Vendor</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for o in olts %}
+              <tr>
+                <td><code>{{ o.id }}</code></td>
+                <td>{{ o.name }}</td>
+                <td>{{ o.ip }}</td>
+                <td class="small">
+                  {% if o.vendor == 'hsairpo-cli' %}
+                    {{ o.protocol or 'telnet' }}:{{ o.cli_port or 23 }} / {{ o.username or 'admin' }}
+                  {% else %}
+                    SNMP {{ o.community or '-' }}
+                  {% endif %}
+                </td>
+                <td>{{ o.vendor or 'zte' }}</td>
+                <td class="text-nowrap">
+                  <a href="{{ url_for('settings', edit=o.id) }}" class="btn btn-sm btn-outline-primary py-0">Edit</a>
+                  <form method="post" class="d-inline" onsubmit="return confirm('Hapus OLT {{ o.id }}?')">
+                    <input type="hidden" name="action" value="delete_olt">
+                    <input type="hidden" name="id" value="{{ o.id }}">
+                    <button type="submit" class="btn btn-sm btn-outline-danger py-0">Hapus</button>
+                  </form>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="6" class="text-center text-muted py-4">Belum ada OLT. Tambah di kiri.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <p class="small text-muted mt-2">
+      Data disimpan di <code>data/olts.json</code>. Setelah tambah OLT, buka Dashboard → pilih OLT → klik Refresh.
+    </p>
+  </div>
+</div>
+
+<script>
+function isCliVendor(v) {
+  return v === 'hsairpo-cli' || v === 'airpo-cli' || v === 'hs-ept' || v === 'cli';
+}
+function toggleVendorFields() {
+  var el = document.getElementById('vendorSelect');
+  if (!el) return;
+  var cli = isCliVendor(el.value);
+  var snmpBox = document.getElementById('snmpFields');
+  var cliBox = document.getElementById('cliFields');
+  if (snmpBox) snmpBox.style.display = cli ? 'none' : 'block';
+  if (cliBox) cliBox.style.display = cli ? 'block' : 'none';
+}
+function syncCliPort() {
+  var proto = document.getElementById('protoSelect');
+  var port = document.getElementById('cliPort');
+  if (!proto || !port) return;
+  if (proto.value === 'telnet' && (port.value === '22' || !port.value)) port.value = 23;
+  if (proto.value === 'ssh' && (port.value === '23' || !port.value)) port.value = 22;
+}
+document.addEventListener('DOMContentLoaded', function() {
+  toggleVendorFields();
+});
+</script>
+{% endblock %}

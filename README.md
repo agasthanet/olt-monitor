@@ -2,7 +2,7 @@
 
 > Dokumen panduan instalasi dan penggunaan **OLT MONITOR** untuk teknisi dan NOC (Network Operations Center).
 
-Aplikasi web berbasis Flask untuk memantau (*monitoring*) dan memetakan (*mapping*) ODP pada perangkat OLT (ZTE, Hioso, HS-EPT1004 / Airpo) secara terpusat.
+Aplikasi web berbasis Flask untuk memantau (*monitoring*) dan memetakan (*mapping*) ODP pada perangkat OLT secara terpusat.
 
 ---
 

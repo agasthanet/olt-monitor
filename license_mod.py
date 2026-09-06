@@ -1,128 +1,157 @@
 """
-License: Trial (max 1 OLT) vs Full (multi-OLT, key bound to HWID).
+ODP Mapping helper
+- serial -> odp  (odp_mapping.csv)
+- name   -> odp  (odp_mapping_by_name.csv)  [dari Excel client]
 """
+
 from __future__ import annotations
 
-import hashlib
-import hmac
+import csv
 import json
-import platform
 import re
-import uuid
 from pathlib import Path
+from typing import Dict, List, Tuple
 
-# Secret untuk sign key — ganti di production kalau mau
-_SECRET = b"OLT-MONITOR-xAI-2026-CyberPlus-HWID-KEY"
-
-_DATA = Path(__file__).resolve().parent / "data"
-_LICENSE_FILE = _DATA / "license.json"
+import config
 
 
-def get_hwid() -> str:
-    """Hardware ID stabil per mesin (Windows/Linux)."""
-    parts = []
+def load_odp_mapping(filepath: str = None) -> Dict[str, str]:
+    """Load mapping serial -> odp name."""
+    filepath = filepath or config.ODP_MAPPING_FILE
+    path = Path(filepath)
+
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.suffix.lower() == ".json":
+            path.write_text("{}", encoding="utf-8")
+        else:
+            path.write_text("serial,odp\n", encoding="utf-8")
+        return {}
+
+    mapping: Dict[str, str] = {}
+
     try:
-        parts.append(str(uuid.getnode()))  # MAC-based
-    except Exception:
-        pass
-    parts.append(platform.node() or "")
-    parts.append(platform.system() or "")
-    parts.append(platform.machine() or "")
-    # Windows: machine guid if available
-    try:
-        if platform.system() == "Windows":
-            import winreg
-            key = winreg.OpenKey(
-                winreg.HKEY_LOCAL_MACHINE,
-                r"SOFTWARE\Microsoft\Cryptography",
-            )
-            guid, _ = winreg.QueryValueEx(key, "MachineGuid")
-            winreg.CloseKey(key)
-            parts.append(str(guid))
-    except Exception:
-        pass
-    raw = "|".join(parts)
-    digest = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest().upper()
-    # format groups: XXXX-XXXX-XXXX-XXXX
-    return "-".join(digest[i : i + 4] for i in range(0, 16, 4))
-
-
-def generate_key(hwid: str) -> str:
-    """Generate full license key untuk HWID tertentu (dipakai keygen)."""
-    h = _normalize_hwid(hwid)
-    sig = hmac.new(_SECRET, h.encode("utf-8"), hashlib.sha256).hexdigest().upper()
-    # 20 hex chars grouped
-    body = sig[:20]
-    return "FULL-" + "-".join(body[i : i + 5] for i in range(0, 20, 5))
-
-
-def _normalize_hwid(hwid: str) -> str:
-    return re.sub(r"[^0-9A-Fa-f]", "", (hwid or "")).upper()
-
-
-def validate_key(key: str, hwid: str | None = None) -> bool:
-    if not key:
-        return False
-    key = key.strip().upper()
-    hwid = hwid or get_hwid()
-    expected = generate_key(hwid).upper()
-    # allow with/without FULL- prefix noise
-    return key.replace(" ", "") == expected.replace(" ", "")
-
-
-def load_license() -> dict:
-    default = {"mode": "trial", "key": "", "activated_at": ""}
-    try:
-        if _LICENSE_FILE.exists():
-            data = json.loads(_LICENSE_FILE.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                default.update(data)
+        if path.suffix.lower() == ".json":
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    mapping = {str(k).strip().upper(): str(v).strip() for k, v in data.items()}
+        else:
+            with open(path, "r", encoding="utf-8") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    serial = (
+                        row.get("serial")
+                        or row.get("Serial")
+                        or row.get("sn")
+                        or row.get("SN")
+                        or row.get("serial_number")
+                        or ""
+                    ).strip().upper()
+                    odp = (
+                        row.get("odp")
+                        or row.get("ODP")
+                        or row.get("odp_name")
+                        or row.get("nama_odp")
+                        or ""
+                    ).strip()
+                    if serial and odp:
+                        mapping[serial] = odp
     except Exception as e:
-        print(f"[LICENSE] load error: {e}")
-    return default
+        print(f"[ODP] Gagal load mapping serial: {e}")
+
+    return mapping
 
 
-def save_license(data: dict) -> None:
-    _DATA.mkdir(parents=True, exist_ok=True)
-    _LICENSE_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+def load_name_mapping(filepath: str = None) -> List[Tuple[str, str]]:
+    """
+    Load list of (name_lower, odp) sorted by name length desc
+    supaya match nama panjang lebih dulu.
+    """
+    filepath = filepath or getattr(config, "ODP_NAME_MAPPING_FILE", "data/odp_mapping_by_name.csv")
+    path = Path(filepath)
+    if not path.exists():
+        return []
+
+    pairs: List[Tuple[str, str]] = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                name = (row.get("name") or row.get("client") or row.get("CLIENT") or "").strip()
+                odp = (row.get("odp") or row.get("ODP") or "").strip()
+                if name and odp:
+                    pairs.append((name.lower(), odp))
+        pairs.sort(key=lambda x: len(x[0]), reverse=True)
+    except Exception as e:
+        print(f"[ODP] Gagal load name mapping: {e}")
+    return pairs
 
 
-def get_mode() -> str:
-    """trial | full"""
-    lic = load_license()
-    key = (lic.get("key") or "").strip()
-    if key and validate_key(key):
-        return "full"
-    return "trial"
+def save_odp_mapping(mapping: Dict[str, str], filepath: str = None) -> bool:
+    filepath = filepath or config.ODP_MAPPING_FILE
+    path = Path(filepath)
+    path.parent.mkdir(parents=True, exist_ok=True)
+
+    try:
+        if path.suffix.lower() == ".json":
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(mapping, f, indent=2, ensure_ascii=False)
+        else:
+            with open(path, "w", encoding="utf-8", newline="") as f:
+                writer = csv.writer(f)
+                writer.writerow(["serial", "odp"])
+                for serial, odp in sorted(mapping.items()):
+                    writer.writerow([serial, odp])
+        return True
+    except Exception as e:
+        print(f"[ODP] Gagal save: {e}")
+        return False
 
 
-def max_olts() -> int:
-    return 999 if get_mode() == "full" else 1
+def _match_name(text: str, name_pairs: List[Tuple[str, str]]) -> str | None:
+    if not text or not name_pairs:
+        return None
+    t = text.lower()
+    # exact / contains
+    for name, odp in name_pairs:
+        if len(name) < 3:
+            continue
+        if name in t or t in name:
+            return odp
+    return None
 
 
-def can_add_olt(current_count: int) -> tuple[bool, str]:
-    limit = max_olts()
-    if current_count >= limit:
-        if get_mode() == "trial":
-            return False, "Mode Trial hanya boleh 1 OLT. Aktivasi Full dengan license key (HWID)."
-        return False, f"Batas OLT tercapai ({limit})."
-    return True, ""
+def apply_odp_to_onts(onts: list, mapping: Dict[str, str] = None) -> list:
+    """Terapkan mapping ODP ke list OnuInfo (serial dulu, lalu nama)."""
+    if mapping is None:
+        mapping = load_odp_mapping()
+    name_pairs = load_name_mapping()
 
+    matched_serial = 0
+    matched_name = 0
 
-def activate(key: str) -> tuple[bool, str]:
-    key = (key or "").strip()
-    hwid = get_hwid()
-    if not validate_key(key, hwid):
-        return False, "Key tidak valid untuk HWID mesin ini."
-    from datetime import datetime
-    save_license({
-        "mode": "full",
-        "key": key.strip().upper(),
-        "activated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "hwid": hwid,
-    })
-    return True, "Aktivasi Full berhasil."
+    for onu in onts:
+        serial_key = (onu.serial or "").strip().upper()
+        if serial_key and serial_key in mapping:
+            onu.odp = mapping[serial_key]
+            matched_serial += 1
+            continue
 
+        # match by name / description
+        text = f"{onu.name or ''} {onu.description or ''}"
+        odp = _match_name(text, name_pairs)
+        if odp:
+            onu.odp = odp
+            matched_name += 1
+            continue
 
-def deactivate() -> None:
-    save_license({"mode": "trial", "key": "", "activated_at": ""})
+        # parse ODP from description text
+        m = re.search(r"ODP[-_\s]?([A-Z0-9\-]+)", text.upper())
+        if m:
+            onu.odp = f"ODP-{m.group(1)}"
+        elif not onu.odp or onu.odp == "Belum di-mapping":
+            onu.odp = "Belum di-mapping"
+
+    print(f"[ODP] Match serial={matched_serial}, name={matched_name}, total_ont={len(onts)}")
+    return onts

@@ -109,7 +109,7 @@ Aplikasi ini memiliki dua mode lisensi:
 ### Langkah Aktivasi Mode Full:
 1. Akses menu **Settings** pada dashboard web.
 2. Salin kode **HWID** yang tertera pada layar.
-3. Kirimkan HWID tersebut ke Admin untuk mendapatkan **License Key**.
+3. Kirimkan HWID tersebut ke email agastha.net@gmail.com dengan subject Key OLT-MONITOR untuk mendapatkan **License Key**.
 4. Tempelkan **License Key** di kolom yang tersedia di menu **Settings**, lalu klik **Aktivasi Full**.
 
 ---

@@ -3,6 +3,12 @@
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/).  
 Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug; **PATCH** = perbaikan sangat kecil.
 
+## [1.2.0] — 2026-09-08
+
+### Added
+- Mode **Auto** vendor: jika path pertama 0 ONT, otomatis coba Hioso → ZTE → HS-Airpo
+- SysDescr generik (bukan merek) prioritas coba Hioso dulu
+
 ## [1.1.1] — 2026-09-08
 
 ### Fixed

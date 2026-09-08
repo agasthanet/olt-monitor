@@ -24,6 +24,7 @@ Aplikasi web berbasis Flask untuk memantau (*monitoring*) dan memetakan (*mappin
 - [Troubleshooting](#troubleshooting)
 - [Versioning](#versioning)
 - [Changelog](#changelog)
+- [Update aplikasi (data tetap aman)](#update-aplikasi-data-tetap-aman)
 - [Alur Singkat Penggunaan](#alur-singkat-penggunaan)
 
 ---
@@ -277,6 +278,127 @@ Rilis pertama stabil (baseline).
 - Port CLI tidak memakai 161 (SNMP)
 
 ---
+
+
+
+---
+
+## Update aplikasi (data tetap aman)
+
+Data konfigurasi **tidak ikut di-overwrite** selama update:
+
+| Tetap aman | Diganti (system) |
+| :--- | :--- |
+| Folder `data/` (`olts.json`, mapping ODP, cache, license, ping history) | `*.py`, `templates/`, `static/` |
+| File `.env` | `requirements.txt`, `README.md`, `CHANGELOG.md`, `VERSION` |
+
+
+
+### Update dari GitHub (disarankan)
+
+Sumber resmi: **https://github.com/agasthanet/olt-monitor.git**
+
+Dengan Git, setiap rilis cukup `git pull` — **folder `data/` dan file `.env` tidak ikut terhapus** karena dilindungi `.gitignore`.
+
+#### A. Install baru dari GitHub
+
+```bash
+git clone https://github.com/agasthanet/olt-monitor.git
+cd olt-monitor
+python3 -m venv venv
+source venv/bin/activate          # Windows: venv\Scripts\activate
+pip install -r requirements.txt
+python3 app.py
+```
+
+Buka browser: `http://127.0.0.1:5000`
+
+#### B. Server yang sudah jalan (ada data OLT) — sambungkan ke Git sekali
+
+```bash
+cd ~/olt-monitor                  # sesuaikan path folder app kamu
+# JANGAN hapus folder data/
+
+# Opsi 1 — script (backup data otomatis)
+chmod +x update-from-git.sh
+./update-from-git.sh
+# sama dengan:
+# ./update-from-git.sh https://github.com/agasthanet/olt-monitor.git main
+
+# Opsi 2 — manual
+git init
+git remote add origin https://github.com/agasthanet/olt-monitor.git
+git fetch origin
+git checkout -b main
+git pull origin main --allow-unrelated-histories
+# jika ada konflik di file kode, pilih versi dari GitHub;
+# pastikan folder data/ lokal tetap utuh
+
+pip install -r requirements.txt
+python3 app.py
+```
+
+#### C. Update rutin (setiap ada versi baru di GitHub)
+
+```bash
+cd ~/olt-monitor
+# Stop app dulu (Ctrl+C)
+
+./update-from-git.sh
+# atau cukup:
+git pull origin main
+
+pip install -r requirements.txt   # hanya jika requirements berubah
+python3 app.py
+
+# cek versi
+cat VERSION
+```
+
+#### D. Yang di-commit ke GitHub vs yang lokal
+
+| Di GitHub (kode) | Hanya di server (jangan di-push) |
+| :--- | :--- |
+| `*.py`, `templates/`, `static/` | `data/olts.json` |
+| `requirements.txt`, `VERSION` | `data/license.json` |
+| `README.md`, `CHANGELOG.md` | `data/*_cache*`, `ping_history` |
+| `.gitignore`, script `update*.sh` | `.env` |
+| `data/*.example` (contoh kosong) | mapping ODP production |
+
+> Admin yang push ke GitHub: jangan pernah commit password OLT, community SNMP, atau license key customer.
+
+### Cara update dari zip (Linux)
+
+```bash
+# 1. Stop app (Ctrl+C)
+# 2. Backup otomatis + ganti kode
+chmod +x update.sh
+./update.sh /path/ke/zte_c320_monitor.zip
+
+# 3. (opsional) dependency baru
+pip install -r requirements.txt
+
+# 4. Jalankan lagi
+python3 app.py
+```
+
+### Cara update (Windows)
+
+```bat
+update.bat C:\path\ke\zte_c320_monitor.zip
+python app.py
+```
+
+### Cara manual (paling aman)
+
+1. Stop `python app.py`
+2. **Backup** folder `data/` dan file `.env`
+3. Extract zip baru ke folder sementara
+4. Salin **hanya** file sistem (`*.py`, `templates/`, `requirements.txt`, `VERSION`, docs) ke folder app
+5. **Jangan** hapus/timpa `data/`
+6. Jalankan lagi app
+
+> Setelah update, cek `cat VERSION` / banner startup harus sesuai changelog.
 
 ## Alur Singkat Penggunaan
 

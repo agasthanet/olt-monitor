@@ -3,6 +3,16 @@
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/).  
 Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug; **PATCH** = perbaikan sangat kecil.
 
+## [1.1.0] — 2026-09-08
+
+### Fixed
+- Deteksi firmware ZTE V1/V2 lebih robust (probe name/serial/status)
+- Auto fallback: jika V1 kosong coba V2 (dan sebaliknya)
+- Update dari GitHub + script jaga folder data
+
+### Changed
+- README dikurasi untuk end-user
+
 ## [1.0.0] — 2026-09-07
 
 ### Added

@@ -2,87 +2,103 @@
 
 > Dokumen panduan instalasi dan penggunaan **OLT MONITOR** untuk teknisi dan NOC (Network Operations Center).
 
+**Versi aplikasi: `1.0.0`**
+
 Aplikasi web berbasis Flask untuk memantau (*monitoring*) dan memetakan (*mapping*) ODP pada perangkat OLT secara terpusat.
 
 ---
 
-## 📋 Daftar Isi
+## Daftar Isi
 
-- [Fitur Utama](#-fitur-utama)
-- [Persyaratan Sistem](#-persyaratan-sistem)
-- [Instalasi Aplikasi](#-instalasi-aplikasi)
-- [Menjalankan Server](#-menjalankan-server)
-- [Aktivasi Lisensi Full](#-aktivasi-lisensi-full)
-- [Konfigurasi & Penambahan OLT](#-konfigurasi--penambahan-olt)
+- [Fitur Utama](#fitur-utama)
+- [Persyaratan Sistem](#persyaratan-sistem)
+- [Instalasi Aplikasi](#instalasi-aplikasi)
+- [Menjalankan Server](#menjalankan-server)
+- [Aktivasi Lisensi Full](#aktivasi-lisensi-full)
+- [Konfigurasi & Penambahan OLT](#konfigurasi--penambahan-olt)
   - [A. Menggunakan SNMP](#a-olt-zte-c320--hioso-snmp)
   - [B. Menggunakan CLI Telnet/SSH](#b-olt-hs-ept1004--airpo-cli-telnetssh)
-- [Dashboard & Pemantauan](#-dashboard--pemantauan)
-- [Mapping ODP](#-mapping-odp)
-- [Troubleshooting](#-troubleshooting)
-- [Alur Singkat Penggunaan](#-alur-singkat-penggunaan)
+  - [C. Hioso HA7302 (CLI)](#c-hioso-ha7302-cli-optical-ddm)
+- [Dashboard & Pemantauan](#dashboard--pemantauan)
+- [Mapping ODP](#mapping-odp)
+- [Troubleshooting](#troubleshooting)
+- [Versioning](#versioning)
+- [Changelog](#changelog)
+- [Alur Singkat Penggunaan](#alur-singkat-penggunaan)
 
 ---
 
-## ⚡ Fitur Utama
+## Fitur Utama
 
-- **Multi-Vendor Support:** Mendukung ZTE C320, Hioso (via SNMP), dan HS-EPT1004 / Airpo (via CLI Telnet/SSH).
+- **Multi-Vendor Support:** ZTE C320 (SNMP), Hioso (SNMP), HS-EPT1004 / Airpo (CLI Telnet/SSH), Hioso HA7302 (CLI optical-ddm).
 - **Monitoring Real-time:** Status Online/Offline, daya optik Rx/Tx (dBm), lokasi port, serta waktu *downtime* terakhir.
-- **ODP Mapping:** Pemetaan lokasi ODP berbasis nomor seri ONT/MAC address.
-- **Auto-Update & Background Refresh:** Pembaruan otomatis halaman frontend setiap 5 menit dan pemindaian *background service* massal setiap 30 menit.
-- **Skalabilitas Flexibel:** Mode Trial (1 OLT) dan Mode Full (multi-OLT berbasis lisensi HWID).
+- **Ping & Health OLT:** Latency ping, grafik latency, CPU/Memory/Uptime/Suhu (jika MIB SNMP support).
+- **ODP Mapping:** Pemetaan lokasi ODP berbasis nomor seri ONT/MAC address (inline edit + CSV).
+- **Auto-Update & Background Refresh:** Frontend ~5 menit; background scan massal OLT tiap 30 menit; ping auto tiap 5 detik.
+- **Lisensi:** Mode Trial (1 OLT) dan Mode Full (multi-OLT, key berbasis HWID).
 
 ---
 
-## 💻 Persyaratan Sistem
-
-Sebelum melakukan instalasi, pastikan sistem memenuhi kriteria berikut:
+## Persyaratan Sistem
 
 - **Sistem Operasi:** Windows 10/11 atau Linux
 - **Python:** Versi `3.10` s/d `3.14`
-- **Konektivitas:** PC/Server dapat terhubung (*ping*) ke IP OLT
+- **Konektivitas:** PC/Server dapat *ping* ke IP OLT
 - **Akses OLT:**
-  - **ZTE / Hioso:** SNMP Community aktif di OLT
-  - **HS-EPT1004:** Akses Telnet/SSH (username & password CLI)
+  - **ZTE / Hioso (SNMP):** SNMP Community aktif
+  - **HS-EPT1004:** Telnet/SSH (username & password CLI)
+  - **Hioso HA7302:** Telnet (biasanya tanpa SNMP ONU)
 
 ### Verifikasi Python
-Buka Terminal / Command Prompt (CMD) / PowerShell, lalu ketik:
+
 ```bash
 python --version
+# atau di Linux:
+python3 --version
 ```
-> **Catatan:** Jika Python belum terpasang, unduh melalui [python.org](https://www.python.org/) dan pastikan opsi **"Add Python to PATH"** dicentang saat proses instalasi.
+
+Jika belum terpasang, unduh dari [python.org](https://www.python.org/) dan centang **"Add Python to PATH"** (Windows).
 
 ---
 
-## 🚀 Instalasi Aplikasi
+## Instalasi Aplikasi
 
-1. **Ekstrak Arsip:**
-   Ekstrak file `zte_c320_monitor.zip` ke direktori pilihan Anda, contoh:
-   ```cmd
+1. **Ekstrak arsip** `zte_c320_monitor.zip` ke folder pilihan, contoh:
+   ```text
    C:\Users\...\Documents\zte_c320_monitor
    ```
+   atau di Linux: `~/olt-monitor`
 
-2. **Masuk ke Direktori Project:**
+2. **Masuk ke direktori project:**
    ```bash
    cd C:\Users\...\Documents\zte_c320_monitor
    ```
 
-3. **Install Dependensi/Paket Pendukung:**
+3. **Install dependensi:**
    ```bash
    pip install -r requirements.txt
    ```
-   *Paket utama meliputi: `Flask`, `python-dotenv`, dan `paramiko` (untuk SSH).*
+   Paket utama: `Flask`, `python-dotenv`, `paramiko` (SSH).
+
+   Di Ubuntu disarankan pakai venv:
+   ```bash
+   sudo apt install -y python3 python3-pip python3-venv
+   python3 -m venv venv
+   source venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
 ---
 
-## 🖥️ Menjalankan Server
-
-Jalankan perintah berikut pada terminal di direktori project:
+## Menjalankan Server
 
 ```bash
 python app.py
+# Linux:
+python3 app.py
 ```
 
-**Contoh Output Terminal:**
+**Contoh output:**
 ```text
 ==================================================
   OLT MONITOR
@@ -92,103 +108,111 @@ python app.py
   Buka http://127.0.0.1:5000
 ```
 
-Buka browser web dan akses alamat:
-👉 **`http://127.0.0.1:5000`**
+Buka browser: **http://127.0.0.1:5000**  
+Dari PC lain di jaringan: `http://<IP-SERVER>:5000`
 
 ---
 
-## 🔑 Aktivasi Lisensi Full
+## Aktivasi Lisensi Full
 
-Aplikasi ini memiliki dua mode lisensi:
-
-| Mode | Batas Maksimal OLT | Persyaratan |
+| Mode | Batas OLT | Syarat |
 | :--- | :--- | :--- |
-| **Trial** | Maksimal 1 OLT | Mode default (tanpa kunci lisensi) |
-| **Full** | Unlimited (Multi-OLT) | License Key resmi sesuai dengan **HWID** mesin |
+| **Trial** | Maksimal 1 OLT | Default, tanpa key |
+| **Full** | Multi-OLT | License Key sesuai **HWID** mesin |
 
-### Langkah Aktivasi Mode Full:
-1. Akses menu **Settings** pada dashboard web.
-2. Salin kode **HWID** yang tertera pada layar.
-3. Kirimkan HWID tersebut ke email agastha.net@gmail.com dengan subject Key OLT-MONITOR untuk mendapatkan **License Key**.
-4. Tempelkan **License Key** di kolom yang tersedia di menu **Settings**, lalu klik **Aktivasi Full**.
+### Langkah aktivasi Full
+
+1. Buka menu **Settings**.
+2. Salin **HWID**.
+3. Kirim HWID ke **agastha.net@gmail.com** dengan subject **Key OLT-MONITOR**.
+4. Tempel **License Key** di Settings → **Aktivasi Full**.
+
+> Keygen hanya untuk admin (folder terpisah, jangan dibagikan ke end-user).
 
 ---
 
-## ⚙️ Konfigurasi & Penambahan OLT
+## Konfigurasi & Penambahan OLT
 
-Akses menu **Settings** $ightarrow$ **Form Tambah / Edit OLT**. Form input akan disesuaikan secara otomatis berdasarkan vendor yang dipilih.
+Menu **Settings** → form **Tambah / Edit OLT**. Field menyesuaikan vendor (SNMP vs CLI).
 
 ### A. OLT ZTE C320 / Hioso (SNMP)
 
-| Parameter | Contoh Isian | Keterangan |
+| Parameter | Contoh | Keterangan |
 | :--- | :--- | :--- |
-| **ID** | `Olt1` | ID Unik Sistem |
-| **Nama** | `OLT1-Main` | Deskripsi / Nama OLT |
-| **IP OLT** | `192.168.0.88` | IP Address OLT |
-| **Vendor** | `ZTE C320 (SNMP)` / `Hioso` | Jenis Vendor OLT |
-| **SNMP Community** | `public` | Sesuaikan dengan konfigurasi OLT |
-| **Port SNMP** | `161` | Port default SNMP |
-| **Boards (slot)** | `1,2` | Nomor slot board yang aktif |
-| **Firmware** | `Auto Detect` | Deteksi otomatis firmware |
-
-Klik **Tambah OLT** untuk menyimpan.
-
----
+| **ID** | `Olt1` | ID unik |
+| **Nama** | `OLT1-Main` | Nama tampilan |
+| **IP OLT** | `192.168.0.88` | IP OLT |
+| **Vendor** | `ZTE C320 (SNMP)` / `Hioso` | |
+| **SNMP Community** | `public` | Sesuai OLT |
+| **Port SNMP** | `161` | |
+| **Boards (slot)** | `1,2` | Slot board aktif |
+| **Firmware** | `Auto Detect` | |
 
 ### B. OLT HS-EPT1004 / Airpo (CLI Telnet/SSH)
 
-| Parameter | Contoh Isian | Keterangan |
+| Parameter | Contoh | Keterangan |
 | :--- | :--- | :--- |
-| **ID** | `Olt2` | ID Unik Sistem |
-| **Nama** | `EPON-OLT-HSAIRPO` | Deskripsi / Nama OLT |
-| **IP OLT** | `192.168.1.88` | IP Address OLT |
-| **Vendor** | `HS-EPT1004 / Airpo (CLI Telnet/SSH)` | Jenis Vendor OLT |
-| **Protocol** | `Telnet` / `SSH` | Protokol komunikasi CLI |
-| **Port CLI** | `23` | Port Telnet (23) atau SSH (22) |
-| **Username CLI** | `admin` | Username login CLI |
-| **Password CLI** | `******` | Password login CLI |
+| **ID** | `Olt2` | ID unik |
+| **Nama** | `EPON-OLT-HSAIRPO` | |
+| **IP OLT** | `192.168.1.88` | |
+| **Vendor** | `HS-EPT1004 / Airpo (CLI Telnet/SSH)` | |
+| **Protocol** | `Telnet` | Disarankan Telnet |
+| **Port CLI** | `23` | SSH biasanya 22 |
+| **Username / Password CLI** | `admin` / `******` | |
 
-> **Tips:** Penguji dapat menguji koneksi Telnet terlebih dahulu menggunakan PuTTY/CMD:
-> ```bash
-> telnet 192.168.1.88 23
-> ```
-> Pastikan prompt login username berhasil muncul.
+Uji dulu: `telnet <IP_OLT> 23`
+
+### C. Hioso HA7302 (CLI optical-ddm)
+
+| Parameter | Contoh | Keterangan |
+| :--- | :--- | :--- |
+| **Vendor** | `Hioso HA7302 (CLI Telnet optical-ddm)` | Tanpa SNMP ONU |
+| **Protocol** | `Telnet` | Port **23** |
+| **Username** | `root` | Sesuai OLT |
+| **Boards** | `1` | Nomor PON fisik (jangan isi 1,2,3,4 jika cuma 1 PON) |
+
+Perintah internal: `show optical-ddm onu 0/1/{pon}:{id}` (max 128 ONU).
 
 ---
 
-## 📊 Dashboard & Pemantauan
+## Dashboard & Pemantauan
 
-1. Buka menu **Dashboard**.
-2. Pilih OLT target pada menu *dropdown*.
-3. Klik tombol **Refresh OLT** untuk menarik data kondisi *optical & ONT/ONU* terbaru dari perangkat.
-4. Gunakan fitur filter **Per PON / ODP** serta kotak pencarian untuk mencari pelanggan berdasarkan nama atau nomor seri (SN/MAC).
+1. Buka **Dashboard**.
+2. Pilih OLT di dropdown.
+3. Klik **Refresh OLT** untuk data optical/ONT terbaru.
+4. Filter Per PON / ODP dan kotak pencarian nama/serial.
 
-### Keterangan Kolom Data Dashboard:
+### Kolom data
 
-| Kolom | Keterangan Informasi |
+| Kolom | Keterangan |
 | :--- | :--- |
-| **Lokasi** | Posisi fisik (`Board / PON / ONU ID`) |
-| **Nama** | Deskripsi / Nama ONT (*kolom Desc pada HS-EPT*) |
-| **Serial** | MAC Address atau Serial Number ONT |
-| **ODP** | Mapping nama ODP (dapat diedit langsung via ikon pensil) |
-| **Status** | Indikator status koneksi (`Online` / `Offline`) |
-| **Rx / Tx** | Parameter daya penerimaan dan pemancaran optik (`dBm`) |
-| **Downtime Terakhir** | Waktu pencatatan terakhir saat status berubah ke offline |
+| **Lokasi** | Board / PON / ONU ID |
+| **Nama** | Deskripsi ONT (Desc di HS-EPT) |
+| **Serial** | MAC / Serial Number |
+| **ODP** | Mapping ODP (edit via ikon pensil) |
+| **Status** | Online / Offline |
+| **Rx / Tx** | Daya optik (dBm) |
+| **Downtime terakhir** | Saat terakhir offline |
 
-### Mekanisme Auto-Update:
-- **Tampilan Browser:** Countdown refresh otomatis berkisar ~5 menit pada tab yang aktif.
-- **Background Service:** Sistem melakukan scanning massal secara otomatis ke seluruh OLT setiap 30 menit selama proses `python app.py` berjalan.
+### Panel atas
+
+- **Ping OLT** — latency OLT yang dipilih (auto tiap 5 detik)
+- **Health OLT** — CPU, Memory, Uptime, Suhu, Fan (N/A jika MIB tidak support)
+- **Grafik latency** — history ping OLT terpilih
+
+### Auto-update
+
+- Browser: ~5 menit pada tab aktif
+- Background ONT: massal tiap **30 menit**
+- Ping: tiap **5 detik** (server)
 
 ---
 
-## 📍 Mapping ODP
+## Mapping ODP
 
-Fitur ini digunakan untuk menghubungkan Nomor Seri / MAC ONT ke nama ODP terkait:
+1. **Dashboard:** ikon pensil pada kolom ODP → isi nama → simpan.
+2. **Menu Mapping ODP:** kelola / impor CSV.
 
-1. **Via Dashboard:** Klik **Ikon Pensil** pada kolom ODP $ightarrow$ Ketik Nama ODP $ightarrow$ **Simpan**.
-2. **Via Menu Mapping ODP (Impor CSV):** Pengelolaan data mapping secara massal dapat diunggah melalui file format CSV.
-
-**Contoh Format CSV:**
 ```csv
 serial,odp
 AA:BB:CC:DD:EE:FF,ODP-Blok-A
@@ -197,32 +221,77 @@ ZTEGC1234567,ODP-Mawar-01
 
 ---
 
-## 🛠️ Troubleshooting
+## Troubleshooting
 
-| Gejala / Error | Penyebab & Solusi Penanganan |
+| Gejala | Penanganan |
 | :--- | :--- |
-| **SNMP Tidak Connect** | Cek koneksi IP (`ping`), pastikan *SNMP Community* sesuai, port `161` terbuka, dan tidak terblokir firewall. |
-| **Error SSH pada HS-EPT** | Ubah konfigurasi **Protocol** ke `Telnet` dan gunakan **Port** `23`. |
-| **Koneksi Telnet Gagal** | Uji koneksi via terminal `telnet <IP_OLT> 23`. Periksa aturan Firewall/Antivirus di Windows. |
-| **Nama ONT Kosong (HS-EPT)** | Pastikan menggunakan versi aplikasi terbaru, lalu lakukan **Refresh OLT** kembali. |
-| **Gagal Menambah OLT ke-2** | Aplikasi masih dalam mode **Trial** (Maks. 1 OLT). Lakukan **Aktivasi Full** menggunakan License Key. |
-| **Proses Refresh Terlalu Lama** | Hal ini normal jika jumlah ONT sangat banyak (*proses pemindaian SNMP Walk / CLI memerlukan waktu*). |
+| SNMP tidak connect | Ping IP, community, port 161, firewall |
+| SSH gagal di HS-EPT | Ganti **Telnet** port **23** |
+| Telnet gagal | `telnet <IP> 23`; cek firewall/antivirus |
+| Hioso CLI 0 ONT padahal ping OK | Boards = nomor PON benar; cek log `[HiosoCLI] sample` |
+| Rx kembar antar PON (HS-EPT) | Gunakan versi ≥ 1.0.0 (merge by MAC) |
+| Nama ONT kosong (HS-EPT) | Refresh OLT; pastikan `show ont info` jalan di CLI |
+| Tidak bisa tambah OLT ke-2 | Masih Trial → aktivasi Full |
+| Refresh lama | Normal jika ONT banyak |
+| Server Ubuntu Python lama | Minimal Python 3.7+ (disarankan 3.10+) |
+| `requirements.txt` invalid | Isi hanya: flask, python-dotenv, paramiko |
 
 ---
 
-## 🔄 Alur Singkat Penggunaan
+## Versioning
+
+Skema versi: **`MAJOR.MINOR`** (ditulis `MAJOR.MINOR.PATCH` bila perlu patch kecil).
+
+| Jenis perubahan | Naikkan | Contoh |
+| :--- | :--- | :--- |
+| Fitur baru / perubahan besar | **MAJOR** | `1.0.0` → `2.0.0` |
+| Perbaikan bug / penyempurnaan kecil | **MINOR** | `1.0.0` → `1.1.0` |
+| Patch sangat kecil (typo, docs) | **PATCH** | `1.1.0` → `1.1.1` |
+
+Setiap rilis wajib dicatat di **Changelog** di bawah (dan file `CHANGELOG.md`).
+
+---
+
+## Changelog
+
+### [1.0.0] — 2026-09-07
+
+Rilis pertama stabil (baseline).
+
+**Fitur**
+
+- Dashboard multi-OLT: status ONT, Rx/Tx, ODP, downtime
+- Vendor: ZTE C320 SNMP, Hioso SNMP, HS-EPT1004 CLI, Hioso HA7302 CLI
+- Mapping ODP (inline + CSV)
+- Lisensi Trial / Full berbasis HWID + keygen admin terpisah
+- Background refresh ONT 30 menit
+- Ping OLT auto 5 detik + grafik latency (OLT terpilih)
+- Health OLT (CPU/Mem/Uptime/Suhu via SNMP bila tersedia)
+- Dual firmware path ZTE; pure-Python SNMPv2c
+
+**Perbaikan yang sudah termasuk di baseline**
+
+- Merge optical HS-EPT by MAC (hindari Rx kembar antar PON)
+- Telnet murni socket (Python 3.13+ tanpa telnetlib)
+- Field Settings SNMP vs CLI sesuai vendor
+- Port CLI tidak memakai 161 (SNMP)
+
+---
+
+## Alur Singkat Penggunaan
 
 ```text
-Install Python 
+Install Python
   └── Extract zte_c320_monitor.zip
         └── pip install -r requirements.txt
               └── python app.py
-                    └── Akses Browser http://127.0.0.1:5000
-                          └── [Opsional] Aktivasi License Full (HWID + Key)
+                    └── Browser http://127.0.0.1:5000
+                          └── [Opsional] Aktivasi Full (HWID + Key)
                                 └── Settings: Tambah OLT (SNMP / CLI)
-                                      └── Dashboard: Refresh OLT & Pemantauan
+                                      └── Dashboard: Refresh OLT
                                             └── Mapping ODP
 ```
 
 ---
-*Simpan file ini bersama paket instalasi repository aplikasi OLT MONITOR.*
+
+*Simpan file ini bersama paket instalasi OLT MONITOR. Lihat juga `CHANGELOG.md` untuk riwayat rilis.*

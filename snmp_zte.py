@@ -624,35 +624,67 @@ def parse_serial(raw) -> str:
 
 
 def detect_firmware(host: str, community: str, port: int = 161) -> str:
-    """Coba deteksi V1 vs V2 dari beberapa OID (name/serial/status)."""
-    timeout = max(getattr(config, "SNMP_TIMEOUT", 5), 8)
+    """
+    Deteksi V1 vs V2. Pakai GETBULK + fallback GETNEXT.
+    Return 'v2' | 'v1' | 'auto' (coba keduanya saat fetch).
+    """
+    timeout = max(getattr(config, "SNMP_TIMEOUT", 5), 10)
+
+    def _probe(oid: str) -> int:
+        try:
+            d = snmp_bulk_walk(host, community, oid, port=port, timeout=timeout, max_oids=15)
+            n = len(d or {})
+            if n:
+                return n
+        except Exception as e:
+            print(f"[SNMP] bulk probe {oid}: {e}")
+        try:
+            d = snmp_getnext_walk(host, community, oid, port=port, timeout=timeout, max_oids=15)
+            n = len(d or {})
+            if n:
+                return n
+        except Exception as e:
+            print(f"[SNMP] next probe {oid}: {e}")
+        return 0
+
     probes_v2 = [
-        "1.3.6.1.4.1.3902.1082.500.10.2.3.3.1.2",   # name
-        "1.3.6.1.4.1.3902.1082.500.10.2.3.3.1.18",  # serial
-        "1.3.6.1.4.1.3902.1082.500.10.2.3.8.1.4",   # status
+        "1.3.6.1.4.1.3902.1082.500.10.2.3.3.1.2",
+        "1.3.6.1.4.1.3902.1082.500.10.2.3.3.1.18",
+        "1.3.6.1.4.1.3902.1082.500.10.2.3.8.1.4",
+        "1.3.6.1.4.1.3902.1082.500.20.2.2.2.1.10",
     ]
     probes_v1 = [
-        "1.3.6.1.4.1.3902.1012.3.28.1.1.3",  # name
-        "1.3.6.1.4.1.3902.1012.3.28.1.1.5",  # serial
-        "1.3.6.1.4.1.3902.1012.3.28.2.1.4",  # status
+        "1.3.6.1.4.1.3902.1012.3.28.1.1.3",
+        "1.3.6.1.4.1.3902.1012.3.28.1.1.5",
+        "1.3.6.1.4.1.3902.1012.3.28.2.1.4",
+        "1.3.6.1.4.1.3902.1012.3.50.12.1.1.10",
     ]
+    score_v2 = score_v1 = 0
     for oid in probes_v2:
-        try:
-            d = snmp_bulk_walk(host, community, oid, port=port, timeout=timeout, max_oids=8)
-            if d:
-                print(f"[SNMP] Firmware terdeteksi: V2 (1082) via {oid}")
-                return "v2"
-        except Exception as e:
-            print(f"[SNMP] probe V2 {oid}: {e}")
+        n = _probe(oid)
+        if n:
+            print(f"[SNMP] V2 hit {n} via {oid}")
+            score_v2 += n
+            break
     for oid in probes_v1:
-        try:
-            d = snmp_bulk_walk(host, community, oid, port=port, timeout=timeout, max_oids=8)
-            if d:
-                print(f"[SNMP] Firmware terdeteksi: V1 (1012) via {oid}")
-                return "v1"
-        except Exception as e:
-            print(f"[SNMP] probe V1 {oid}: {e}")
-    print("[SNMP] Tidak bisa deteksi firmware — akan coba V2 lalu V1")
+        n = _probe(oid)
+        if n:
+            print(f"[SNMP] V1 hit {n} via {oid}")
+            score_v1 += n
+            break
+    if score_v2 and not score_v1:
+        print("[SNMP] Firmware → V2")
+        return "v2"
+    if score_v1 and not score_v2:
+        print("[SNMP] Firmware → V1")
+        return "v1"
+    if score_v2 >= score_v1 and score_v2:
+        print("[SNMP] Firmware → V2 (score lebih tinggi)")
+        return "v2"
+    if score_v1:
+        print("[SNMP] Firmware → V1 (score lebih tinggi)")
+        return "v1"
+    print("[SNMP] Probe kosong — mode AUTO (fetch V2+V1)")
     return "auto"
 
 
@@ -718,6 +750,7 @@ def _fetch_v1(host: str, community: str, boards: List[int], port: int, filter_po
         statuses = f_st.result()
         rxs = f_rx.result()
     print(f"[SNMP] Ditemukan {len(names)} entry name")
+    skipped_board = 0
 
     for suffix, name in names.items():
         try:
@@ -727,7 +760,8 @@ def _fetch_v1(host: str, community: str, boards: List[int], port: int, filter_po
             if_index = int(parts[0])
             onu_id = int(parts[1])
             board, pon = _guess_board_pon_v1(if_index)
-            if board not in boards:
+            if boards and board not in boards:
+                skipped_board += 1
                 continue
 
             serial = parse_serial(serials.get(suffix, ""))
@@ -755,6 +789,40 @@ def _fetch_v1(host: str, community: str, boards: List[int], port: int, filter_po
             )
         except Exception as e:
             print(f"[parse v1] {suffix}: {e}")
+    if skipped_board:
+        print(f"[SNMP] V1: {skipped_board} entry dilewati filter boards={boards}")
+        if not onts and names:
+            print("[SNMP] V1: coba tanpa filter board...")
+            # re-parse without board filter
+            for suffix, name in names.items():
+                try:
+                    parts = str(suffix).strip(".").split(".")
+                    if len(parts) < 2:
+                        continue
+                    if_index = int(parts[0])
+                    onu_id = int(parts[1])
+                    board, pon = _guess_board_pon_v1(if_index)
+                    serial = parse_serial(serials.get(suffix, ""))
+                    try:
+                        status_code = int(statuses.get(suffix, -1))
+                    except Exception:
+                        status_code = -1
+                    status = STATUS_MAP.get(status_code, "Unknown")
+                    rx_raw = rxs.get(suffix, rxs.get(suffix + ".1"))
+                    rx_val = convert_rx_power(rx_raw)
+                    onts.append(OnuInfo(
+                        board=board, pon=pon, onu_id=onu_id,
+                        name=str(name).strip('"') if name else "",
+                        serial=serial,
+                        status=STATUS_DISPLAY.get(status, status),
+                        status_code=status_code,
+                        rx_power=rx_val,
+                        raw_index=str(suffix),
+                        olt_id=olt_id, olt_name=olt_name,
+                    ))
+                except Exception:
+                    pass
+            print(f"[SNMP] V1 tanpa filter board → {len(onts)} ONT")
     return onts
 
 
@@ -1053,30 +1121,39 @@ def fetch_all_onts(
             olt_id=olt_id, olt_name=olt_name,
         )
 
-    if firmware is None or firmware == "auto":
-        firmware = detect_firmware(host, community, port)
+    # Selalu deteksi; mode auto/user-auto → coba V2 dan V1
+    fw_setting = (firmware or "auto").lower().strip()
+    if fw_setting in ("", "auto", "none"):
+        detected = detect_firmware(host, community, port)
+    else:
+        detected = fw_setting
 
-    if firmware == "v2":
-        onts = _fetch_v2(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
-        if onts:
-            return onts
-        print("[SNMP] V2 kosong → fallback V1")
-        return _fetch_v1(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+    print(f"[SNMP] Firmware setting={fw_setting!r} detected={detected!r}")
 
-    if firmware == "v1":
-        onts = _fetch_v1(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
-        if onts:
-            return onts
-        print("[SNMP] V1 kosong → fallback V2")
-        return _fetch_v2(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+    order = []
+    if detected == "v1":
+        order = ["v1", "v2"]
+    elif detected == "v2":
+        order = ["v2", "v1"]
+    else:
+        # auto / unknown: V2 dulu (C320 modern), lalu V1
+        order = ["v2", "v1"]
 
-    # firmware == "auto" (tidak terdeteksi): coba keduanya
-    print("[SNMP] Coba V2 dulu...")
-    onts = _fetch_v2(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
-    if onts:
-        return onts
-    print("[SNMP] V2 kosong → coba V1...")
-    return _fetch_v1(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+    # User pilih manual v1/v2: tetap fallback ke yang lain jika kosong
+    if fw_setting in ("v1", "v2"):
+        order = [fw_setting, "v2" if fw_setting == "v1" else "v1"]
+
+    last: List[OnuInfo] = []
+    for fw in order:
+        print(f"[SNMP] Fetch path {fw.upper()} ...")
+        if fw == "v2":
+            last = _fetch_v2(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+        else:
+            last = _fetch_v1(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+        print(f"[SNMP] Path {fw.upper()} → {len(last)} ONT")
+        if last:
+            return last
+    return last
 
 
 # ============================================================

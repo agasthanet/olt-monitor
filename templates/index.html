@@ -1,5 +1,109 @@
 {% extends "base.html" %}
-{% block title %}Dashboard - OLT MONITOR{% endblock %}
+{% block title %}Dashboard - OLT MONITOR
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+(function() {
+  const oltId = {{ (filter_olt or '')|tojson }};
+  const initialHistory = {{ (ping_history or [])|tojson }};
+  let chart = null;
+
+  function buildChart(history) {
+    const labels = (history || []).map(p => {
+      const d = new Date((p.ts || 0) * 1000);
+      return d.toLocaleTimeString();
+    });
+    const data = (history || []).map(p => p.ok ? p.ms : null);
+    const ctx = document.getElementById('pingChart');
+    if (!ctx) return;
+    if (chart) chart.destroy();
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [{
+          label: 'Latency (ms)',
+          data,
+          borderColor: '#0d6efd',
+          backgroundColor: 'rgba(13,110,253,0.15)',
+          spanGaps: false,
+          tension: 0.25,
+          pointRadius: 2,
+          borderWidth: 2,
+          fill: true,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          y: { beginAtZero: true, title: { display: true, text: 'ms' } }
+        }
+      }
+    });
+  }
+
+  function renderStatus(result) {
+    const box = document.getElementById('pingStatusBox');
+    if (!box || !result) return;
+    if (result.ok) {
+      box.innerHTML = '<div class="d-flex align-items-center gap-2 mb-2">'
+        + '<span class="badge bg-success">UP</span>'
+        + '<span class="fs-5 fw-bold">' + result.ms + ' ms</span></div>'
+        + '<div class="small text-muted">Loss: ' + (result.loss || 0) + '% · ' + (result.ip || '') + '</div>';
+    } else {
+      box.innerHTML = '<div class="d-flex align-items-center gap-2 mb-2">'
+        + '<span class="badge bg-danger">DOWN</span>'
+        + '<span class="text-danger small">' + (result.error || 'timeout') + '</span></div>'
+        + '<div class="small text-muted">' + (result.ip || '') + '</div>';
+    }
+  }
+
+  function renderHealth(h) {
+    const box = document.getElementById('healthBox');
+    if (!box || !h) return;
+    const cpu = (h.cpu_percent != null) ? (h.cpu_percent + '%') : 'N/A';
+    const mem = (h.mem_percent != null) ? (h.mem_percent + '%') : 'N/A';
+    const temp = (h.temperature_c != null) ? (h.temperature_c + '°C') : 'N/A';
+    const fan = h.fan || 'N/A';
+    box.innerHTML = '<div class="mb-1">CPU: <strong>' + cpu + '</strong></div>'
+      + '<div class="mb-1">Memory: <strong>' + mem + '</strong></div>'
+      + '<div class="mb-1">Uptime: <strong>' + (h.uptime || '—') + '</strong></div>'
+      + '<div class="mb-1">Suhu: <strong>' + temp + '</strong></div>'
+      + '<div class="mb-1">Fan: <strong>' + fan + '</strong></div>'
+      + (h.error ? '<div class="text-muted mt-1">' + h.error + '</div>' : '');
+  }
+
+  let healthForced = false;
+
+  async function refreshPingUi() {
+    if (!oltId) return;
+    try {
+      // pastikan ada sample ping untuk grafik
+      const rp = await fetch('/api/ping?olt=' + encodeURIComponent(oltId));
+      const jp = await rp.json();
+      if (jp.result) renderStatus(jp.result);
+      if (jp.history) buildChart(jp.history);
+    } catch (e) { console.warn('ping', e); }
+    try {
+      const q = healthForced ? '' : '&force=1';
+      healthForced = true;
+      const r2 = await fetch('/api/health?olt=' + encodeURIComponent(oltId) + q);
+      const j2 = await r2.json();
+      if (j2.health) renderHealth(j2.health);
+    } catch (e) { console.warn('health', e); }
+  }
+
+  if (oltId) {
+    buildChart(initialHistory || []);
+    refreshPingUi();              // langsung isi health + 1 titik grafik
+    setInterval(refreshPingUi, 5000);
+  }
+})();
+</script>
+
+{% endblock %}
 
 {% block content %}
 <!-- Stats -->
@@ -49,6 +153,80 @@
     </div>
   </div>
 </div>
+
+<!-- Ping + Health OLT + chart -->
+<div class="row g-3 mb-4">
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-white py-2">
+        <strong><i class="bi bi-broadcast-pin"></i> Ping OLT</strong>
+      </div>
+      <div class="card-body">
+        {% set ps = ping_status %}
+        <div id="pingStatusBox">
+          {% if filter_olt %}
+            <div class="small text-muted mb-2">OLT: <strong>{{ filter_olt }}</strong></div>
+            {% if ps and ps.ok %}
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="badge bg-success">UP</span>
+                <span class="fs-5 fw-bold">{{ ps.ms }} ms</span>
+              </div>
+              <div class="small text-muted">Loss: {{ ps.loss }}% · {{ ps.ip or '' }}</div>
+            {% elif ps %}
+              <div class="d-flex align-items-center gap-2 mb-2">
+                <span class="badge bg-danger">DOWN</span>
+                <span class="text-danger small">{{ ps.error or 'timeout' }}</span>
+              </div>
+              <div class="small text-muted">{{ ps.ip or '' }}</div>
+            {% else %}
+              <div class="text-muted small">Belum ada data ping. Menunggu auto-ping...</div>
+            {% endif %}
+          {% else %}
+            <div class="text-muted small">Pilih OLT di filter untuk lihat ping.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-3">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-white py-2">
+        <strong><i class="bi bi-cpu"></i> Health OLT</strong>
+      </div>
+      <div class="card-body small" id="healthBox">
+        {% set h = olt_health %}
+        {% if filter_olt and h %}
+          <div class="mb-1">CPU: <strong>{% if h.cpu_percent is not none %}{{ h.cpu_percent }}%{% else %}N/A{% endif %}</strong></div>
+          <div class="mb-1">Memory: <strong>{% if h.mem_percent is not none %}{{ h.mem_percent }}%{% else %}N/A{% endif %}</strong></div>
+          <div class="mb-1">Uptime: <strong>{{ h.uptime or '—' }}</strong></div>
+          <div class="mb-1">Suhu: <strong>{% if h.temperature_c is not none %}{{ h.temperature_c }}°C{% else %}N/A{% endif %}</strong></div>
+          <div class="mb-1">Fan: <strong>{% if h.fan %}{{ h.fan }}{% else %}N/A{% endif %}</strong></div>
+          {% if h.error %}<div class="text-muted mt-1">{{ h.error }}</div>{% endif %}
+        {% elif filter_olt %}
+          <div class="text-muted">Menunggu data health (SNMP)...</div>
+        {% else %}
+          <div class="text-muted">Pilih OLT di filter.</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header bg-white py-2">
+        <strong><i class="bi bi-graph-up"></i> Grafik latency (ms)</strong>
+        <span class="text-muted small ms-2" id="pingChartLabel">
+          {% if filter_olt %}OLT: {{ filter_olt }}{% else %}pilih OLT{% endif %}
+        </span>
+      </div>
+      <div class="card-body" style="min-height:200px; height:200px;">
+        <canvas id="pingChart" height="80"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div>
+
 
 <!-- Filter bar -->
 <div class="filter-bar mb-4">

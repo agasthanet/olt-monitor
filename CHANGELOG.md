@@ -3,6 +3,12 @@
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/).  
 Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug; **PATCH** = perbaikan sangat kecil.
 
+## [1.1.1] — 2026-09-08
+
+### Fixed
+- Mode Auto firmware: selalu coba V2 + V1 (GETBULK & GETNEXT)
+- Jika boards filter menihilkan semua ONT, ulangi tanpa filter board
+
 ## [1.1.0] — 2026-09-08
 
 ### Fixed

@@ -624,18 +624,36 @@ def parse_serial(raw) -> str:
 
 
 def detect_firmware(host: str, community: str, port: int = 161) -> str:
-    """Coba deteksi V1 vs V2."""
-    # V2 name table
-    v2 = snmp_bulk_walk(host, community, "1.3.6.1.4.1.3902.1082.500.10.2.3.3.1.2", port=port, timeout=config.SNMP_TIMEOUT, max_oids=5)
-    if v2:
-        print("[SNMP] Firmware terdeteksi: V2 (1082)")
-        return "v2"
-    v1 = snmp_bulk_walk(host, community, "1.3.6.1.4.1.3902.1012.3.28.1.1.3", port=port, timeout=config.SNMP_TIMEOUT, max_oids=5)
-    if v1:
-        print("[SNMP] Firmware terdeteksi: V1 (1012)")
-        return "v1"
-    print("[SNMP] Tidak bisa deteksi firmware, default V1")
-    return "v1"
+    """Coba deteksi V1 vs V2 dari beberapa OID (name/serial/status)."""
+    timeout = max(getattr(config, "SNMP_TIMEOUT", 5), 8)
+    probes_v2 = [
+        "1.3.6.1.4.1.3902.1082.500.10.2.3.3.1.2",   # name
+        "1.3.6.1.4.1.3902.1082.500.10.2.3.3.1.18",  # serial
+        "1.3.6.1.4.1.3902.1082.500.10.2.3.8.1.4",   # status
+    ]
+    probes_v1 = [
+        "1.3.6.1.4.1.3902.1012.3.28.1.1.3",  # name
+        "1.3.6.1.4.1.3902.1012.3.28.1.1.5",  # serial
+        "1.3.6.1.4.1.3902.1012.3.28.2.1.4",  # status
+    ]
+    for oid in probes_v2:
+        try:
+            d = snmp_bulk_walk(host, community, oid, port=port, timeout=timeout, max_oids=8)
+            if d:
+                print(f"[SNMP] Firmware terdeteksi: V2 (1082) via {oid}")
+                return "v2"
+        except Exception as e:
+            print(f"[SNMP] probe V2 {oid}: {e}")
+    for oid in probes_v1:
+        try:
+            d = snmp_bulk_walk(host, community, oid, port=port, timeout=timeout, max_oids=8)
+            if d:
+                print(f"[SNMP] Firmware terdeteksi: V1 (1012) via {oid}")
+                return "v1"
+        except Exception as e:
+            print(f"[SNMP] probe V1 {oid}: {e}")
+    print("[SNMP] Tidak bisa deteksi firmware — akan coba V2 lalu V1")
+    return "auto"
 
 
 def _guess_board_pon_v1(if_index: int) -> Tuple[int, int]:
@@ -1039,7 +1057,25 @@ def fetch_all_onts(
         firmware = detect_firmware(host, community, port)
 
     if firmware == "v2":
+        onts = _fetch_v2(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+        if onts:
+            return onts
+        print("[SNMP] V2 kosong → fallback V1")
+        return _fetch_v1(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+
+    if firmware == "v1":
+        onts = _fetch_v1(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+        if onts:
+            return onts
+        print("[SNMP] V1 kosong → fallback V2")
         return _fetch_v2(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+
+    # firmware == "auto" (tidak terdeteksi): coba keduanya
+    print("[SNMP] Coba V2 dulu...")
+    onts = _fetch_v2(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
+    if onts:
+        return onts
+    print("[SNMP] V2 kosong → coba V1...")
     return _fetch_v1(host, community, boards, port, filter_pon=filter_pon, olt_id=olt_id, olt_name=olt_name)
 
 

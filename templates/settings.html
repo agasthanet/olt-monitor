@@ -39,6 +39,7 @@
               <option value="hioso" {% if ven=='hioso' %}selected{% endif %}>Hioso (SNMP)</option>
               <option value="hsairpo" {% if ven=='hsairpo' %}selected{% endif %}>HS Airpo / VSOL (SNMP)</option>
               <option value="hsairpo-cli" {% if ven=='hsairpo-cli' %}selected{% endif %}>HS-EPT1004 / Airpo (CLI Telnet/SSH)</option>
+              <option value="hioso-cli" {% if ven=='hioso-cli' %}selected{% endif %}>Hioso HA7302 (CLI Telnet optical-ddm)</option>
             </select>
           </div>
 
@@ -225,7 +226,7 @@
 
 <script>
 function isCliVendor(v) {
-  return v === 'hsairpo-cli' || v === 'airpo-cli' || v === 'hs-ept' || v === 'cli';
+  return v === 'hsairpo-cli' || v === 'airpo-cli' || v === 'hs-ept' || v === 'cli' || v === 'hioso-cli' || v === 'ha7302';
 }
 function toggleVendorFields() {
   var el = document.getElementById('vendorSelect');

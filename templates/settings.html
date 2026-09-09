@@ -1,47 +1,61 @@
 {% extends "base.html" %}
 {% block title %}Settings - OLT MONITOR
+
 <script>
 (function(){
   const msg = document.getElementById('verMsg');
   const log = document.getElementById('verLog');
   function show(m, ok) {
     if (!msg) return;
-    msg.className = 'small ' + (ok ? 'text-success' : 'text-danger');
-    msg.textContent = m;
+    msg.className = 'small mt-1 ' + (ok ? 'text-success' : 'text-danger');
+    msg.innerHTML = m;
   }
-  document.getElementById('btnCheckVer')?.addEventListener('click', async function(){
-    this.disabled = true;
+  function showLog(t) {
+    if (!log) return;
+    if (t) { log.textContent = t; log.classList.remove('d-none'); }
+  }
+  var btnC = document.getElementById('btnCheckVer');
+  var btnU = document.getElementById('btnUpdateApp');
+  if (btnC) btnC.addEventListener('click', async function(){
+    btnC.disabled = true;
     show('Mengecek GitHub...', true);
     try {
-      const r = await fetch('/api/version?check=1');
-      const j = await r.json();
+      var r = await fetch('/api/version?check=1');
+      var j = await r.json();
       document.getElementById('localVer').textContent = j.local || '?';
-      document.getElementById('remoteVer').textContent = j.remote || (j.error ? 'gagal' : '—');
-      if (j.error && !j.remote) show('Gagal cek remote: ' + j.error, false);
-      else if (j.newer) show('Tersedia versi baru: ' + j.remote + ' (sekarang ' + j.local + '). Klik Update.', true);
-      else if (j.remote) show('Sudah versi terbaru (' + j.local + ').', true);
-      else show('Cek selesai.', true);
-    } catch (e) { show('Error: ' + e, false); }
-    this.disabled = false;
+      document.getElementById('remoteVer').textContent = j.remote || '—';
+      if (j.error && !j.remote) {
+        show('Gagal baca GitHub: ' + j.error + (j.hint ? '<br>' + j.hint : ''), false);
+      } else if (j.newer) {
+        show('Ada versi baru <strong>' + j.remote + '</strong> (sekarang ' + j.local + '). Klik Update.', true);
+      } else if (j.remote) {
+        show('Sudah versi terbaru atau sama dengan GitHub (' + j.local + ').', true);
+      } else {
+        show('Cek selesai tanpa data remote.', false);
+      }
+    } catch (e) {
+      show('Error jaringan: ' + e, false);
+    }
+    btnC.disabled = false;
   });
-  document.getElementById('btnUpdateApp')?.addEventListener('click', async function(){
-    if (!confirm('Update dari GitHub sekarang? Folder data/ tetap aman. Setelah itu restart app.')) return;
-    this.disabled = true;
+  if (btnU) btnU.addEventListener('click', async function(){
+    if (!confirm('Update dari GitHub? data/ aman. Setelah itu HARUS restart app.')) return;
+    btnU.disabled = true;
     show('Updating...', true);
     try {
-      const r = await fetch('/api/update', { method: 'POST' });
-      const j = await r.json();
-      show(j.msg || (j.ok ? 'OK' : 'Gagal'), j.ok);
-      if (j.log) {
-        log.textContent = j.log;
-        log.classList.remove('d-none');
-      }
+      var r = await fetch('/api/update', { method: 'POST' });
+      var j = await r.json();
+      show(j.msg || (j.ok ? 'OK' : 'Gagal'), !!j.ok);
+      showLog(j.log || '');
       if (j.version) document.getElementById('localVer').textContent = j.version;
-    } catch (e) { show('Error: ' + e, false); }
-    this.disabled = false;
+    } catch (e) {
+      show('Error: ' + e, false);
+    }
+    btnU.disabled = false;
   });
 })();
 </script>
+
 
 {% endblock %}
 

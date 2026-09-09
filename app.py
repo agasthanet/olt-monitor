@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.4.5"
+APP_VERSION = "1.4.6"
 
 from flask import (
     Flask,
@@ -765,34 +765,47 @@ def api_health():
 
 @app.route("/api/version")
 def api_version():
-    """Versi lokal + cek remote GitHub (opsional)."""
+    """Versi lokal + cek remote GitHub."""
     local = APP_VERSION
     remote = None
     error = ""
     check = request.args.get("check") in ("1", "true", "yes")
     if check:
-        try:
-            import urllib.request
-            url = "https://raw.githubusercontent.com/agasthanet/olt-monitor/main/VERSION"
-            req = urllib.request.Request(url, headers={"User-Agent": "OLT-MONITOR"})
-            with urllib.request.urlopen(req, timeout=8) as resp:
-                remote = resp.read().decode("utf-8", errors="ignore").strip().split()[0]
-        except Exception as e:
-            error = str(e)
+        urls = [
+            "https://raw.githubusercontent.com/agasthanet/olt-monitor/main/VERSION",
+            "https://raw.githubusercontent.com/agasthanet/olt-monitor/master/VERSION",
+        ]
+        last_err = ""
+        for url in urls:
+            try:
+                import urllib.request
+                req = urllib.request.Request(url, headers={"User-Agent": "OLT-MONITOR/1.0"})
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    body = resp.read().decode("utf-8", errors="ignore").strip()
+                    if body:
+                        remote = body.split()[0].strip()
+                        last_err = ""
+                        break
+            except Exception as e:
+                last_err = str(e)
+        if not remote:
+            error = last_err or "VERSION tidak ditemukan di GitHub (sudah di-push?)"
     newer = False
     if remote and local:
         def _tup(v):
             parts = []
-            for x in v.replace("v", "").split("."):
+            for x in str(v).replace("v", "").split("."):
                 try:
                     parts.append(int(x))
                 except Exception:
                     parts.append(0)
-            return tuple(parts + [0, 0, 0])[:3]
+            while len(parts) < 3:
+                parts.append(0)
+            return tuple(parts[:3])
         try:
             newer = _tup(remote) > _tup(local)
         except Exception:
-            newer = remote != local
+            newer = str(remote) != str(local)
     return jsonify({
         "ok": True,
         "local": local,
@@ -800,79 +813,83 @@ def api_version():
         "newer": newer,
         "error": error,
         "repo": "https://github.com/agasthanet/olt-monitor",
+        "hint": (
+            "Push file VERSION ke branch main di GitHub agar cek versi berfungsi."
+            if not remote and check else ""
+        ),
     })
 
 
 @app.route("/api/update", methods=["POST"])
 def api_update():
-    """Coba update via git pull / update-from-git.sh. Data folder aman."""
+    """Update via git pull. Butuh repo git + jaringan ke GitHub."""
     import subprocess
+    import sys
     root = _Path(__file__).resolve().parent
     logs = []
-    try:
-        script = root / "update-from-git.sh"
-        if script.exists():
-            proc = subprocess.run(
-                ["bash", str(script)],
-                cwd=str(root),
-                capture_output=True,
-                text=True,
-                timeout=120,
-            )
-            logs.append(proc.stdout or "")
-            logs.append(proc.stderr or "")
-            if proc.returncode != 0:
-                # fallback git pull
-                if (root / ".git").exists():
-                    p2 = subprocess.run(
-                        ["git", "pull", "--ff-only"],
-                        cwd=str(root),
-                        capture_output=True,
-                        text=True,
-                        timeout=60,
-                    )
-                    logs.append(p2.stdout or "")
-                    logs.append(p2.stderr or "")
-                    if p2.returncode != 0:
-                        return jsonify({
-                            "ok": False,
-                            "msg": "Update gagal. Jalankan manual: ./update-from-git.sh atau git pull",
-                            "log": "\n".join(logs)[-2000:],
-                        })
-            # reload VERSION
-            ver = APP_VERSION
-            vf = root / "VERSION"
-            if vf.exists():
-                ver = vf.read_text(encoding="utf-8").strip().split()[0]
-            return jsonify({
-                "ok": True,
-                "msg": f"Update selesai. Restart app supaya kode baru aktif. Versi file: {ver}",
-                "version": ver,
-                "log": "\n".join(logs)[-1500:],
-            })
-        if (root / ".git").exists():
-            p2 = subprocess.run(
-                ["git", "pull", "--ff-only"],
-                cwd=str(root),
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            logs.append(p2.stdout or "")
-            logs.append(p2.stderr or "")
-            ok = p2.returncode == 0
-            return jsonify({
-                "ok": ok,
-                "msg": "git pull OK — restart app" if ok else "git pull gagal",
-                "log": "\n".join(logs)[-1500:],
-            })
+    is_win = sys.platform.startswith("win")
+
+    # Cek .git
+    if not (root / ".git").exists():
         return jsonify({
             "ok": False,
-            "msg": "Folder belum git repo. Install via git clone atau jalankan update-from-git.sh di terminal.",
+            "msg": "Folder app belum terhubung Git. "
+                   "Clone dari GitHub, atau update manual dari ZIP. "
+                   "Lihat README (Update aplikasi).",
+            "log": "Tidak ada folder .git di: " + str(root),
+        })
+
+    try:
+        # pastikan remote
+        rem = subprocess.run(
+            ["git", "remote", "-v"],
+            cwd=str(root), capture_output=True, text=True, timeout=15,
+        )
+        logs.append(rem.stdout or rem.stderr or "")
+        if "github.com" not in (rem.stdout or ""):
+            subprocess.run(
+                ["git", "remote", "add", "origin", "https://github.com/agasthanet/olt-monitor.git"],
+                cwd=str(root), capture_output=True, text=True, timeout=15,
+            )
+
+        p2 = subprocess.run(
+            ["git", "pull", "--ff-only", "origin", "main"],
+            cwd=str(root), capture_output=True, text=True, timeout=90,
+        )
+        logs.append(p2.stdout or "")
+        logs.append(p2.stderr or "")
+        if p2.returncode != 0:
+            p3 = subprocess.run(
+                ["git", "pull", "--ff-only", "origin", "master"],
+                cwd=str(root), capture_output=True, text=True, timeout=90,
+            )
+            logs.append(p3.stdout or "")
+            logs.append(p3.stderr or "")
+            if p3.returncode != 0:
+                return jsonify({
+                    "ok": False,
+                    "msg": "git pull gagal. Cek jaringan / login GitHub, atau update via ZIP.",
+                    "log": "\n".join(logs)[-2000:],
+                })
+
+        ver = APP_VERSION
+        vf = root / "VERSION"
+        if vf.exists():
+            ver = vf.read_text(encoding="utf-8").strip().split()[0]
+        return jsonify({
+            "ok": True,
+            "msg": f"Update OK (file VERSION={ver}). WAJIB restart: stop app lalu jalankan lagi python app.py",
+            "version": ver,
+            "log": "\n".join(logs)[-1500:],
+        })
+    except FileNotFoundError:
+        return jsonify({
+            "ok": False,
+            "msg": "Perintah git tidak ditemukan. Install Git, atau update manual dari ZIP.",
             "log": "",
         })
     except Exception as e:
-        return jsonify({"ok": False, "msg": str(e), "log": ""})
+        return jsonify({"ok": False, "msg": str(e), "log": "\n".join(logs)[-1000:]})
 
 
 @app.route("/api/ping")

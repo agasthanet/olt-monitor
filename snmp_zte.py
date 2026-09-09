@@ -269,7 +269,8 @@ def _decode_response(data: bytes) -> List[Tuple[str, object]]:
     return varbinds
 
 
-def snmp_get(host: str, community: str, oid: str, port: int = 161, timeout: float = 5.0) -> Optional[object]:
+def snmp_get(host: str, community: str, oid: str, port: int = 161, timeout: float = 5.0, quiet: bool = True) -> Optional[object]:
+    """quiet=True: jangan spam log saat timeout (default)."""
     req_id = random.randint(1, 0x7FFFFFFF)
     pdu = _encode_get_pdu(req_id, oid)
     msg = _encode_message(community, pdu)
@@ -282,8 +283,11 @@ def snmp_get(host: str, community: str, oid: str, port: int = 161, timeout: floa
         vbs = _decode_response(data)
         if vbs:
             return vbs[0][1]
+    except socket.timeout:
+        return None
     except Exception as e:
-        print(f"[SNMP GET] {oid}: {e}")
+        if not quiet:
+            print(f"[SNMP GET] {oid}: {e}")
     return None
 
 
@@ -319,7 +323,7 @@ def snmp_getnext_walk(
                 break
             continue
         except Exception as e:
-            print(f"[SNMP GETNEXT] {current_oid}: {e}")
+            # jangan spam; GETNEXT gagal → stop walk
             break
 
         if not vbs:

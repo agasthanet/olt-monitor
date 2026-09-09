@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import time
+import logging
 from collections import defaultdict
 from datetime import datetime
 from typing import List
@@ -17,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.4.1"
+APP_VERSION = "1.4.3"
 
 from flask import (
     Flask,
@@ -313,6 +314,12 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
         part = apply_downtime_tracking(part)
         print(f"[APP] OLT {oid}: {len(part)} ONT dalam {time.time()-t0:.1f}s")
         fetched_all.extend(part)
+
+    # Pastikan setiap ONT punya olt_id
+    for o in fetched_all:
+        if not getattr(o, "olt_id", None) and targets:
+            o.olt_id = str(targets[0].get("id") or "")
+            o.olt_name = targets[0].get("name") or o.olt_id
 
     # Merge ke cache: ganti data OLT yang di-refresh, pertahankan OLT lain
     refreshed_ids = {str(o.get("id")) for o in targets if o}
@@ -1016,6 +1023,27 @@ except Exception as e:
     print(f"[BG] start error: {e}")
 
 
+
+class _QuietPingFilter(logging.Filter):
+    """Sembunyikan access log /api/ping dan /api/health (poll tiap detik)."""
+    def filter(self, record: logging.LogRecord) -> bool:
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        if "/api/ping" in msg or "/api/health" in msg:
+            return False
+        return True
+
+
+def _setup_quiet_access_log():
+    for name in ("werkzeug", "werkzeug.access"):
+        log = logging.getLogger(name)
+        # hindari double-add
+        if not any(isinstance(f, _QuietPingFilter) for f in log.filters):
+            log.addFilter(_QuietPingFilter())
+
+
 if __name__ == "__main__":
     print("=" * 50)
     print(f"  OLT MONITOR  v{APP_VERSION}")
@@ -1032,4 +1060,5 @@ if __name__ == "__main__":
     print("=" * 50)
     print("  Buka http://127.0.0.1:5000")
     print("=" * 50)
+    _setup_quiet_access_log()
     app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)

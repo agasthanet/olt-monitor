@@ -103,7 +103,7 @@ def fetch_olt_health_snmp(host: str, community: str, port: int = 161) -> Dict[st
             if n is not None and 0 <= n <= 100:
                 cpu_vals.append(n)
     except Exception as e:
-        print(f"[HEALTH] cpu zte: {e}")
+        pass  # quiet
     if not cpu_vals:
         try:
             for _sfx, val in (snmp_bulk_walk(host, community, OID_HR_PROCESSOR_LOAD, port=port, timeout=5, max_repetitions=10) or {}).items():
@@ -111,7 +111,7 @@ def fetch_olt_health_snmp(host: str, community: str, port: int = 161) -> Dict[st
                 if n is not None and 0 <= n <= 100:
                     cpu_vals.append(n)
         except Exception as e:
-            print(f"[HEALTH] cpu hr: {e}")
+            pass
     if not cpu_vals:
         try:
             v = snmp_get(host, community, OID_UCD_SS_CPU_USER, port=port, timeout=3)
@@ -132,7 +132,7 @@ def fetch_olt_health_snmp(host: str, community: str, port: int = 161) -> Dict[st
             if n is not None and 0 <= n <= 100:
                 mem_vals.append(n)
     except Exception as e:
-        print(f"[HEALTH] mem zte: {e}")
+        pass
     if not mem_vals:
         try:
             sizes, used, descrs = {}, {}, {}
@@ -148,7 +148,7 @@ def fetch_olt_health_snmp(host: str, community: str, port: int = 161) -> Dict[st
                     if s and u is not None and s > 0:
                         mem_vals.append(int(100 * u / s))
         except Exception as e:
-            print(f"[HEALTH] mem hr: {e}")
+            pass
     out["mem_percent"] = _avg(mem_vals)
     if mem_vals:
         out["details"]["mem_samples"] = mem_vals

@@ -156,7 +156,10 @@ def ping_all_olts(olts: list) -> dict:
             continue
         try:
             results[oid] = record_ping(oid, ip)
-            print(f"[PING] {oid} {ip}: {results[oid]}")
+            # log hanya jika DOWN (jangan spam terminal tiap 5 detik)
+            r = results[oid]
+            if not r.get("ok"):
+                print(f"[PING] DOWN {oid} {ip}: {r.get('error') or 'timeout'}")
         except Exception as e:
             print(f"[PING] {oid} error: {e}")
     return results

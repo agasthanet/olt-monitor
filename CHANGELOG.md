@@ -5,6 +5,26 @@ Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug / penyempurnaan; *
 
 ---
 
+## [1.5.1] — 2026-09-09
+
+### Fixed
+- Hioso EPON: parser **classic** (nama dari OID 37 saja, seperti versi awal)
+- Serial diformat MAC `aa:bb:cc:dd:ee:ff`
+- Match Rx/Tx longgar jika index optical beda
+
+## [1.5.0] — 2026-09-09
+
+### Fixed
+- **Hioso SNMP** dikembalikan ke logika stabil (seperti sebelum 1.4.1)
+- Hapus filter ghost / rewrite board-PON yang merusak data
+- Tidak scan banyak OID description (penyebab nama jadi `"1"` dan refresh lambat)
+
+## [1.4.8] — 2026-09-09
+
+### Fixed
+- Nama ONT Hioso semua jadi `"1"`: abaikan nilai numerik/status sebagai description
+- Fallback nama ke serial atau lokasi `board/pon:onu`
+
 ## [1.4.7] — 2026-09-09
 
 ### Fixed

@@ -1,243 +1,197 @@
 # OLT MONITOR
 
-> Panduan instalasi dan penggunaan **OLT MONITOR** untuk teknisi / NOC.
+> Panduan instalasi dan penggunaan untuk teknisi / NOC.
 
-**Versi: `1.0.0`**
+**Versi: lihat file `VERSION`**
 
 Aplikasi web untuk memantau ONT/ONU dari OLT (status, Rx/Tx, mapping ODP) secara terpusat.
 
----
-
-## Daftar Isi
-
-- [Fitur Utama](#fitur-utama)
-- [Persyaratan Sistem](#persyaratan-sistem)
-- [Instalasi](#instalasi)
-- [Menjalankan Server](#menjalankan-server)
-- [Aktivasi Lisensi Full](#aktivasi-lisensi-full)
-- [Menambahkan OLT](#menambahkan-olt)
-- [Dashboard](#dashboard)
-- [Mapping ODP](#mapping-odp)
-- [Update Aplikasi](#update-aplikasi)
-- [Troubleshooting](#troubleshooting)
-- [Alur Singkat](#alur-singkat)
+Repo: https://github.com/agasthanet/olt-monitor
 
 ---
 
 ## Fitur Utama
 
 - Multi-vendor: ZTE C320 (SNMP), Hioso (SNMP), HS-EPT1004 / Airpo (CLI), Hioso HA7302 (CLI)
-- Status ONT Online/Offline, Rx/Tx (dBm), downtime terakhir
-- Mapping ODP (edit di dashboard atau impor CSV)
-- Ping OLT + grafik latency
-- Health OLT (CPU/Memory/Uptime/Suhu bila SNMP support)
-- Auto refresh background tiap 30 menit; ping otomatis
-- Mode **Trial** (1 OLT) dan **Full** (multi-OLT)
+- Status ONT, Rx/Tx, downtime, mapping ODP
+- Ping OLT + grafik latency, health (CPU/Mem bila SNMP support)
+- Background refresh, mode Trial (1 OLT) / Full (multi-OLT)
 
 ---
 
-## Persyaratan Sistem
+## Persyaratan
 
-- Windows 10/11 atau Linux
-- Python **3.10 – 3.14** (minimal 3.7+)
-- Server/PC dapat **ping** ke IP OLT
-- Akses sesuai vendor:
-  - ZTE / Hioso SNMP → community SNMP aktif
-  - HS-EPT / HA7302 → Telnet atau SSH (user & password)
-
-Cek Python:
-
-```bash
-python --version
-# Linux:
-python3 --version
-```
+- Python **3.10 – 3.14** (disarankan)
+- Jaringan: PC/server dapat **ping** ke IP OLT
+- SNMP community **atau** akses Telnet/SSH (tergantung vendor)
 
 ---
 
-## Instalasi
+## Instalasi di Linux (Ubuntu/Debian)
 
-### Dari GitHub (disarankan)
+### Cara cepat (script)
 
 ```bash
-git clone https://github.com/agasthanet/olt-monitor.git
-cd olt-monitor
-python3 -m venv venv
-source venv/bin/activate
-# Windows: venv\Scripts\activate
-pip install -r requirements.txt
+curl -fsSL https://raw.githubusercontent.com/agasthanet/olt-monitor/main/install.sh -o install.sh
+# atau salin install.sh dari paket
+chmod +x install.sh
+./install.sh
 ```
 
-### Dari file ZIP
+Script akan: install `python3`/`git` bila perlu, `git clone`, buat `venv`, `pip install`.
 
-1. Extract `zte_c320_monitor.zip` / isi repo ke folder pilihan
-2. Masuk folder tersebut
-3. `pip install -r requirements.txt`
-
-**Ubuntu** (jika belum ada venv):
+### Manual
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-pip python3-venv
+sudo apt install -y python3 python3-pip python3-venv git
+
+git clone https://github.com/agasthanet/olt-monitor.git
+cd olt-monitor
+
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
+
+python app.py
 ```
+
+Buka browser: **http://127.0.0.1:5000**  
+Dari PC lain: `http://<IP-SERVER>:5000`
+
+### Update di Linux
+
+```bash
+cd ~/olt-monitor
+source venv/bin/activate
+./update-from-git.sh
+# atau: git pull
+pip install -r requirements.txt
+# stop app (Ctrl+C) lalu jalankan lagi:
+python app.py
+```
+
+Atau dari menu **Settings** di web: **Cek versi** / **Update dari GitHub**, lalu restart app.
+
+---
+
+## Instalasi di Windows
+
+1. Install Python dari [python.org](https://www.python.org/downloads/)  
+   Centang **“Add python.exe to PATH”**.
+2. Install **Git for Windows** dari [git-scm.com](https://git-scm.com/) (opsional, untuk update via Git).
+3. Buka **Command Prompt** atau **PowerShell**:
+
+```bat
+git clone https://github.com/agasthanet/olt-monitor.git
+cd olt-monitor
+
+python -m venv venv
+venv\Scripts\activate
+pip install -r requirements.txt
+
+python app.py
+```
+
+Tanpa Git: extract ZIP → `cd` ke folder → buat venv & `pip install` sama seperti di atas.
+
+Buka browser: **http://127.0.0.1:5000**
+
+### Update di Windows
+
+```bat
+cd olt-monitor
+venv\Scripts\activate
+git pull
+pip install -r requirements.txt
+python app.py
+```
+
+Atau `update.bat path\ke\zte_c320_monitor.zip` jika update dari file ZIP.
 
 ---
 
 ## Menjalankan Server
 
 ```bash
+# Linux
+source venv/bin/activate
 python app.py
-# atau
-python3 app.py
-```
 
-Buka browser: **http://127.0.0.1:5000**  
-Dari PC lain: `http://<IP-SERVER>:5000`
+# Windows
+venv\Scripts\activate
+python app.py
+```
 
 ---
 
 ## Aktivasi Lisensi Full
 
-| Mode | Batas OLT |
-| :--- | :--- |
-| **Trial** | 1 OLT (default) |
-| **Full** | Multi-OLT |
+| Mode | Batas |
+|------|--------|
+| Trial | 1 OLT |
+| Full | Multi-OLT |
 
-1. Buka menu **Settings**
-2. Salin **HWID**
-3. Kirim HWID ke **agastha.net@gmail.com** (subject: `Key OLT-MONITOR`)
-4. Tempel **License Key** yang diterima → **Aktivasi Full**
+1. Settings → salin **HWID**
+2. Kirim ke **agastha.net@gmail.com** (subject: `Key OLT-MONITOR`)
+3. Tempel license key → Aktivasi Full
 
 ---
 
 ## Menambahkan OLT
 
-Menu **Settings** → form tambah OLT. Field menyesuaikan vendor.
+Settings → form OLT (field menyesuaikan vendor).
 
-### ZTE C320 / Hioso (SNMP)
+| Vendor | Akses |
+|--------|--------|
+| ZTE C320 / Hioso SNMP | Community + port 161 |
+| HS-EPT1004 CLI | Telnet port 23 + user/pass |
+| Hioso HA7302 CLI | Telnet + user/pass, Boards = nomor PON |
 
-| Field | Contoh |
-| :--- | :--- |
-| ID / Nama | `olt1` / `OLT-Main` |
-| IP | `192.168.0.88` |
-| Vendor | ZTE C320 (SNMP) atau Hioso |
-| Community | `public` (sesuai OLT) |
-| Port | `161` |
-| Boards | `1,2` |
-
-### HS-EPT1004 / Airpo (CLI)
-
-| Field | Contoh |
-| :--- | :--- |
-| Vendor | HS-EPT1004 / Airpo (CLI Telnet/SSH) |
-| Protocol | Telnet (port **23**) |
-| Username / Password | sesuai login CLI |
-
-### Hioso HA7302 (CLI)
-
-| Field | Contoh |
-| :--- | :--- |
-| Vendor | Hioso HA7302 (CLI Telnet optical-ddm) |
-| Protocol | Telnet, port **23** |
-| Username | biasanya `root` |
-| Boards | nomor PON saja, mis. `1` (jangan `1,2,3,4` jika hanya 1 PON) |
-
-Uji Telnet: `telnet <IP_OLT> 23`
-
----
-
-## Dashboard
-
-1. Pilih OLT di dropdown
-2. Klik **Refresh OLT** untuk ambil data terbaru
-3. Filter PON / ODP / pencarian nama atau serial
-
-| Kolom | Isi |
-| :--- | :--- |
-| Lokasi | Board / PON / ONU |
-| Nama | Deskripsi ONT |
-| Serial | MAC / SN |
-| ODP | Bisa diedit (ikon pensil) |
-| Status | Online / Offline |
-| Rx / Tx | dBm |
-| Downtime | Terakhir offline |
-
-**Ping** dan **Health** menampilkan data OLT yang sedang dipilih.  
-Background: data ONT di-scan massal tiap ~30 menit selama app berjalan.
+Dashboard → pilih OLT → **Refresh OLT**.
 
 ---
 
 ## Mapping ODP
 
-- Di dashboard: klik ikon pensil pada kolom ODP → isi nama → simpan
-- Atau menu **Mapping ODP** / impor CSV:
+Ikon pensil di kolom ODP, atau impor CSV di menu Mapping ODP:
 
 ```csv
 serial,odp
-AA:BB:CC:DD:EE:FF,ODP-Blok-A
+AABBCCDDEEFF,ODP-Blok-A
 ```
 
 ---
 
-## Update Aplikasi
+## Update & versi (Settings)
 
-Data OLT, mapping ODP, dan license **tidak hilang** saat update (tersimpan di folder `data/`).
+Di **Settings** tersedia:
 
-### Update dari GitHub
+- **Cek versi** — bandingkan versi lokal dengan GitHub  
+- **Update dari GitHub** — `git pull` / script update (folder `data/` aman)
 
-```bash
-cd olt-monitor
-# stop app dulu (Ctrl+C)
-
-./update-from-git.sh
-# atau:
-git pull
-
-pip install -r requirements.txt
-python3 app.py
-```
-
-Cek versi: `cat VERSION`
-
-### Update dari ZIP
-
-```bash
-./update.sh /path/ke/zte_c320_monitor.zip
-# Windows: update.bat path\ke\file.zip
-python app.py
-```
+Setelah update, **restart** `python app.py`.
 
 ---
 
 ## Troubleshooting
 
 | Masalah | Solusi |
-| :--- | :--- |
-| SNMP tidak connect | Ping IP OLT, cek community & port 161, firewall |
-| CLI/Telnet gagal | `telnet <IP> 23`, cek user/password, firewall |
-| 0 ONT padahal OLT hidup | Vendor benar? Boards/PON sesuai? Refresh lagi |
-| Tidak bisa tambah OLT ke-2 | Masih Trial → aktivasi Full |
-| Refresh lama | Normal jika ONT banyak |
-| Python error `annotations` | Upgrade Python (minimal 3.7, disarankan 3.10+) |
+|---------|--------|
+| SNMP gagal | Ping IP, community, port 161, firewall |
+| Telnet gagal | `telnet <IP> 23`, cek user/password |
+| 0 ONT | Vendor & Boards benar? Refresh lagi |
+| Tidak bisa OLT ke-2 | Masih Trial → aktivasi Full |
+| Update gagal di web | Jalankan `./update-from-git.sh` di terminal |
 
 ---
 
-## Alur Singkat
+## Alur singkat
 
 ```text
-Install (git clone / extract zip)
-  → pip install -r requirements.txt
+Install (Linux: install.sh / Windows: clone + venv)
   → python app.py
-  → Browser http://127.0.0.1:5000
-  → (opsional) Aktivasi Full via HWID
-  → Settings: Tambah OLT
-  → Dashboard: Refresh & monitor
-  → Mapping ODP bila perlu
+  → http://127.0.0.1:5000
+  → Settings: tambah OLT
+  → Dashboard: Refresh
 ```
-
----
-
-*OLT MONITOR v1.0.0 — simpan panduan ini bersama instalasi.*

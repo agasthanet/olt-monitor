@@ -3,12 +3,19 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'%3E%3Crect x='4' y='10' width='40' height='28' rx='3' fill='%230d6efd'/%3E%3Ccircle cx='12' cy='30' r='2.2' fill='%2320c997'/%3E%3Ccircle cx='20' cy='30' r='2.2' fill='%2320c997'/%3E%3Ccircle cx='28' cy='30' r='2.2' fill='%23ffc107'/%3E%3Ccircle cx='36' cy='30' r='2.2' fill='%23adb5bd'/%3E%3C/svg%3E">
   <title>{% block title %}OLT MONITOR{% endblock %}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
   <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
   <style>
     body { background: #f0f2f5; }
     .navbar { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
+    .navbar-brand .olt-logo {
+      width: 32px; height: 32px;
+      background: rgba(255,255,255,.08);
+      border-radius: 8px;
+    }
+    .navbar-brand .olt-logo svg { display: block; }
     .stat-card { border: none; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); }
     .stat-card .icon { font-size: 1.8rem; opacity: .85; }
     .table-ont th { white-space: nowrap; font-size: .85rem; }
@@ -24,8 +31,27 @@
 <body>
   <nav class="navbar navbar-dark navbar-expand-lg mb-4">
     <div class="container-fluid">
-      <a class="navbar-brand fw-bold" href="{{ url_for('index') }}">
-        <i class="bi bi-broadcast-pin"></i> OLT MONITOR
+      <a class="navbar-brand fw-bold d-flex align-items-center" href="{{ url_for('index') }}">
+        <span class="olt-logo d-inline-flex align-items-center justify-content-center me-1" aria-hidden="true">
+          <svg width="28" height="28" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- chassis -->
+            <rect x="4" y="10" width="40" height="28" rx="3" fill="#0d6efd" stroke="#9ec5fe" stroke-width="1.5"/>
+            <!-- top vents -->
+            <rect x="10" y="14" width="3" height="6" rx="0.5" fill="#9ec5fe" opacity="0.9"/>
+            <rect x="15" y="14" width="3" height="6" rx="0.5" fill="#9ec5fe" opacity="0.9"/>
+            <rect x="20" y="14" width="3" height="6" rx="0.5" fill="#9ec5fe" opacity="0.9"/>
+            <!-- PON ports -->
+            <circle cx="12" cy="30" r="2.2" fill="#20c997"/>
+            <circle cx="20" cy="30" r="2.2" fill="#20c997"/>
+            <circle cx="28" cy="30" r="2.2" fill="#ffc107"/>
+            <circle cx="36" cy="30" r="2.2" fill="#adb5bd"/>
+            <!-- status LED -->
+            <circle cx="40" cy="16" r="1.8" fill="#20c997"/>
+            <!-- fiber line -->
+            <path d="M8 38 C16 42, 32 42, 40 38" stroke="#9ec5fe" stroke-width="1.5" fill="none" stroke-linecap="round"/>
+          </svg>
+        </span>
+        OLT MONITOR
       </a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
         <span class="navbar-toggler-icon"></span>
@@ -50,8 +76,10 @@
         </ul>
         <div class="d-flex align-items-center text-white-50 small">
           {% if demo %}<span class="badge bg-warning text-dark me-2">DEMO MODE</span>{% endif %}
-          <a href="{{ url_for('refresh') }}" class="btn btn-sm btn-outline-light">
-            <i class="bi bi-arrow-clockwise"></i> Refresh
+          <a href="{{ url_for('refresh_all') }}" class="btn btn-sm btn-outline-light"
+             title="Force refresh semua OLT"
+             onclick="this.innerHTML='<span class=\'spinner-border spinner-border-sm\'></span> Refresh all...';">
+            <i class="bi bi-arrow-clockwise"></i> Refresh All
           </a>
         </div>
       </div>
@@ -74,7 +102,7 @@
   </div>
 
   <footer class="text-center py-4 mt-4">
-    OLT MONITOR v1.2.0 &middot; ZTE, Hioso &amp; HS Airpo &middot; Multi-OLT
+    OLT MONITOR v1.4.0 &middot; ZTE, Hioso &amp; HS Airpo &middot; Multi-OLT
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

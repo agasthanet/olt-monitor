@@ -1,5 +1,49 @@
 {% extends "base.html" %}
-{% block title %}Settings - OLT MONITOR{% endblock %}
+{% block title %}Settings - OLT MONITOR
+<script>
+(function(){
+  const msg = document.getElementById('verMsg');
+  const log = document.getElementById('verLog');
+  function show(m, ok) {
+    if (!msg) return;
+    msg.className = 'small ' + (ok ? 'text-success' : 'text-danger');
+    msg.textContent = m;
+  }
+  document.getElementById('btnCheckVer')?.addEventListener('click', async function(){
+    this.disabled = true;
+    show('Mengecek GitHub...', true);
+    try {
+      const r = await fetch('/api/version?check=1');
+      const j = await r.json();
+      document.getElementById('localVer').textContent = j.local || '?';
+      document.getElementById('remoteVer').textContent = j.remote || (j.error ? 'gagal' : '—');
+      if (j.error && !j.remote) show('Gagal cek remote: ' + j.error, false);
+      else if (j.newer) show('Tersedia versi baru: ' + j.remote + ' (sekarang ' + j.local + '). Klik Update.', true);
+      else if (j.remote) show('Sudah versi terbaru (' + j.local + ').', true);
+      else show('Cek selesai.', true);
+    } catch (e) { show('Error: ' + e, false); }
+    this.disabled = false;
+  });
+  document.getElementById('btnUpdateApp')?.addEventListener('click', async function(){
+    if (!confirm('Update dari GitHub sekarang? Folder data/ tetap aman. Setelah itu restart app.')) return;
+    this.disabled = true;
+    show('Updating...', true);
+    try {
+      const r = await fetch('/api/update', { method: 'POST' });
+      const j = await r.json();
+      show(j.msg || (j.ok ? 'OK' : 'Gagal'), j.ok);
+      if (j.log) {
+        log.textContent = j.log;
+        log.classList.remove('d-none');
+      }
+      if (j.version) document.getElementById('localVer').textContent = j.version;
+    } catch (e) { show('Error: ' + e, false); }
+    this.disabled = false;
+  });
+})();
+</script>
+
+{% endblock %}
 
 {% block content %}
 <div class="row">
@@ -170,7 +214,32 @@
 
   <div class="col-lg-7">
     <div class="card shadow-sm">
-      <div class="card-header bg-white d-flex justify-content-between align-items-center">
+      
+  <div class="card shadow-sm mt-3">
+    <div class="card-header bg-white">
+      <strong><i class="bi bi-info-circle"></i> Versi & Update</strong>
+    </div>
+    <div class="card-body">
+      <p class="mb-2">Versi terpasang: <strong id="localVer">{{ app_version or '?' }}</strong></p>
+      <p class="mb-2 small text-muted" id="remoteVerLine">Versi GitHub: <span id="remoteVer">—</span></p>
+      <div class="d-flex flex-wrap gap-2 mb-2">
+        <button type="button" class="btn btn-outline-primary btn-sm" id="btnCheckVer">
+          <i class="bi bi-search"></i> Cek versi
+        </button>
+        <button type="button" class="btn btn-success btn-sm" id="btnUpdateApp">
+          <i class="bi bi-cloud-download"></i> Update dari GitHub
+        </button>
+      </div>
+      <div id="verMsg" class="small"></div>
+      <pre id="verLog" class="small bg-light p-2 rounded mt-2 d-none" style="max-height:160px;overflow:auto;"></pre>
+      <p class="small text-muted mb-0 mt-2">
+        Setelah update berhasil, <strong>restart</strong> proses <code>python app.py</code> agar kode baru aktif.
+        Data OLT di folder <code>data/</code> tidak ikut terhapus.
+      </p>
+    </div>
+  </div>
+
+<div class="card-header bg-white d-flex justify-content-between align-items-center">
         <h5 class="mb-0"><i class="bi bi-hdd-network"></i> Daftar OLT</h5>
         <span class="badge bg-secondary">{{ olts|length }} OLT</span>
       </div>

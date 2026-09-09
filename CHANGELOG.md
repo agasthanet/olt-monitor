@@ -1,7 +1,29 @@
+## [1.4.0] — 2026-09-09
+
+### Added
+- Settings: Cek versi & Update dari GitHub
+- install.sh Linux
+- README terpisah Windows/Linux
+
 # Changelog — OLT MONITOR
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/).  
 Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug; **PATCH** = perbaikan sangat kecil.
+
+## [1.3.2] — 2026-09-09
+
+### Fixed
+- Nama ONT Hioso: prioritaskan description, bukan `ONU-x:y`
+- Serial dibersihkan dari karakter garbage
+
+## [1.3.0] — 2026-09-09
+
+### Added
+- Tombol **Refresh All** di navbar: force refresh semua OLT
+
+### Fixed
+- Struktur template dashboard (script Chart.js) — grafik latency tampil
+- Canvas grafik tinggi tetap + wait Chart.js load
 
 ## [1.2.0] — 2026-09-08
 

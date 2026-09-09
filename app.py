@@ -17,7 +17,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.2.0"
+APP_VERSION = "1.4.0"
 
 from flask import (
     Flask,
@@ -493,6 +493,25 @@ def refresh():
     return redirect(url_for("index", **args))
 
 
+@app.route("/refresh-all")
+def refresh_all():
+    """Force refresh SEMUA OLT (tombol Refresh di navbar)."""
+    t0 = time.time()
+    # force semua: olt_id=None
+    onts = get_onts(force=True, olt_id=None, filter_pon=None)
+    elapsed = time.time() - t0
+    n_olt = len(config.OLTS or [])
+    flash(f"Force refresh SEMUA OLT ({n_olt} OLT): {len(onts)} ONT dalam {elapsed:.1f}s", "success")
+    args = {}
+    olt = request.args.get("olt")
+    if olt:
+        args["olt"] = olt
+    for k in ("view", "pon", "odp", "q"):
+        if request.args.get(k):
+            args[k] = request.args.get(k)
+    return redirect(url_for("index", **args))
+
+
 
 @app.route("/odp", methods=["GET", "POST"])
 def odp_page():
@@ -682,6 +701,7 @@ def settings():
         license_hwid=get_hwid(),
         license_info=load_license(),
         license_max_olts=max_olts(),
+        app_version=APP_VERSION,
     )
 
 
@@ -729,6 +749,119 @@ def api_health():
     else:
         data = get_cached_health(oid)
     return jsonify({"ok": True, "olt": oid, "health": data})
+
+
+
+@app.route("/api/version")
+def api_version():
+    """Versi lokal + cek remote GitHub (opsional)."""
+    local = APP_VERSION
+    remote = None
+    error = ""
+    check = request.args.get("check") in ("1", "true", "yes")
+    if check:
+        try:
+            import urllib.request
+            url = "https://raw.githubusercontent.com/agasthanet/olt-monitor/main/VERSION"
+            req = urllib.request.Request(url, headers={"User-Agent": "OLT-MONITOR"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                remote = resp.read().decode("utf-8", errors="ignore").strip().split()[0]
+        except Exception as e:
+            error = str(e)
+    newer = False
+    if remote and local:
+        def _tup(v):
+            parts = []
+            for x in v.replace("v", "").split("."):
+                try:
+                    parts.append(int(x))
+                except Exception:
+                    parts.append(0)
+            return tuple(parts + [0, 0, 0])[:3]
+        try:
+            newer = _tup(remote) > _tup(local)
+        except Exception:
+            newer = remote != local
+    return jsonify({
+        "ok": True,
+        "local": local,
+        "remote": remote,
+        "newer": newer,
+        "error": error,
+        "repo": "https://github.com/agasthanet/olt-monitor",
+    })
+
+
+@app.route("/api/update", methods=["POST"])
+def api_update():
+    """Coba update via git pull / update-from-git.sh. Data folder aman."""
+    import subprocess
+    root = _Path(__file__).resolve().parent
+    logs = []
+    try:
+        script = root / "update-from-git.sh"
+        if script.exists():
+            proc = subprocess.run(
+                ["bash", str(script)],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            logs.append(proc.stdout or "")
+            logs.append(proc.stderr or "")
+            if proc.returncode != 0:
+                # fallback git pull
+                if (root / ".git").exists():
+                    p2 = subprocess.run(
+                        ["git", "pull", "--ff-only"],
+                        cwd=str(root),
+                        capture_output=True,
+                        text=True,
+                        timeout=60,
+                    )
+                    logs.append(p2.stdout or "")
+                    logs.append(p2.stderr or "")
+                    if p2.returncode != 0:
+                        return jsonify({
+                            "ok": False,
+                            "msg": "Update gagal. Jalankan manual: ./update-from-git.sh atau git pull",
+                            "log": "\n".join(logs)[-2000:],
+                        })
+            # reload VERSION
+            ver = APP_VERSION
+            vf = root / "VERSION"
+            if vf.exists():
+                ver = vf.read_text(encoding="utf-8").strip().split()[0]
+            return jsonify({
+                "ok": True,
+                "msg": f"Update selesai. Restart app supaya kode baru aktif. Versi file: {ver}",
+                "version": ver,
+                "log": "\n".join(logs)[-1500:],
+            })
+        if (root / ".git").exists():
+            p2 = subprocess.run(
+                ["git", "pull", "--ff-only"],
+                cwd=str(root),
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            logs.append(p2.stdout or "")
+            logs.append(p2.stderr or "")
+            ok = p2.returncode == 0
+            return jsonify({
+                "ok": ok,
+                "msg": "git pull OK — restart app" if ok else "git pull gagal",
+                "log": "\n".join(logs)[-1500:],
+            })
+        return jsonify({
+            "ok": False,
+            "msg": "Folder belum git repo. Install via git clone atau jalankan update-from-git.sh di terminal.",
+            "log": "",
+        })
+    except Exception as e:
+        return jsonify({"ok": False, "msg": str(e), "log": ""})
 
 
 @app.route("/api/ping")

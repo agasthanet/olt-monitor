@@ -591,36 +591,29 @@ def parse_serial(raw) -> str:
     if raw is None:
         return ""
     if isinstance(raw, (bytes, bytearray)):
-        # vendor (4) + hex serial
+        raw_b = bytes(raw)
+        # MAC 6 bytes
+        if len(raw_b) == 6:
+            return "".join(f"{b:02X}" for b in raw_b)
+        # vendor(4 ascii) + serial
         try:
-            if len(raw) >= 8:
-                # often first 4 bytes vendor ascii or binary
-                s = raw.decode("ascii", errors="ignore").strip()
-                if len(s) >= 8:
-                    return re.sub(r"^\d+,", "", s).strip().upper()
-            return raw.hex().upper()
+            if len(raw_b) >= 8:
+                s = raw_b.decode("ascii", errors="ignore").strip()
+                if len(s) >= 8 and s.isprintable():
+                    return re.sub(r"^\d+,", "", s).strip()
+            # hex encode if binary garbage
+            if any(b < 32 or b > 126 for b in raw_b[:8]):
+                return raw_b.hex().upper()
+            s = raw_b.decode("latin-1", errors="ignore")
+            s = "".join(ch for ch in s if ch.isprintable()).strip()
+            return s
         except Exception:
-            return raw.hex().upper()
-    raw = str(raw).strip().strip('"')
-    # decoder kadang hasilkan "1,ZTEGXXXX" atau "1.ZTEGXXXX"
-    if "," in raw:
-        raw = raw.split(",")[-1].strip()
-    if re.match(r"^\d+\.", raw):
-        raw = raw.split(".", 1)[-1].strip()
-    raw = raw.replace("0x", "").replace(" ", "")
-    # hex string panjang → coba decode vendor
-    if len(raw) >= 16 and all(c in "0123456789ABCDEFabcdef" for c in raw):
-        try:
-            b = bytes.fromhex(raw[:24] if len(raw) >= 24 else raw)
-            vendor = b[:4].decode("ascii", errors="ignore")
-            if vendor.isprintable() and len(vendor) >= 3:
-                rest = b[4:].hex().upper()
-                return (vendor + rest).upper()
-            return raw.upper()
-        except Exception:
-            return raw.upper()
-    return raw.upper()
-
+            return raw_b.hex().upper()
+    s = str(raw).strip().strip('"')
+    s = "".join(ch for ch in s if ch.isprintable()).strip()
+    # strip common prefixes
+    s = re.sub(r"^\d+,", "", s).strip()
+    return s
 
 
 def detect_firmware(host: str, community: str, port: int = 161) -> str:
@@ -1198,6 +1191,35 @@ def fetch_all_onts(
 # Hioso OLT (enterprise 25355) — EPON & GPON
 # ============================================================
 
+
+def _clean_display(val) -> str:
+    """Buang karakter non-printable / garbage dari SNMP string."""
+    if val is None:
+        return ""
+    if isinstance(val, bytes):
+        # MAC 6 byte
+        if len(val) == 6:
+            return "".join(f"{b:02X}" for b in val)
+        try:
+            val = val.decode("utf-8", errors="ignore")
+        except Exception:
+            val = val.decode("latin-1", errors="ignore")
+    s = str(val).strip().strip('"')
+    # filter control chars
+    s = "".join(ch for ch in s if ch.isprintable())
+    s = s.strip()
+    if s.lower() in ("n/a", "na", "null", "none", "--", "-"):
+        return ""
+    return s
+
+
+def _is_generic_onu_name(name: str) -> bool:
+    import re
+    if not name:
+        return True
+    return bool(re.match(r"^ONU[-:_\s]?\d", name, re.I)) or bool(re.match(r"^ONU\d*$", name, re.I))
+
+
 HIOSO_STATUS = {
     1: "Online",
     2: "Offline",
@@ -1246,7 +1268,16 @@ def _parse_hioso_index(suffix: str) -> Tuple[int, int, int]:
 
 def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", olt_name: str = "") -> List[OnuInfo]:
     """Hioso EPON / HA73xx style — MIB 25355.3.2.6"""
+    # 37 sering isi label generik ONU-x:y; description di kolom lain
     name_oid = "1.3.6.1.4.1.25355.3.2.6.3.2.1.37"
+    desc_oids = [
+        "1.3.6.1.4.1.25355.3.2.6.3.2.1.36",  # desc alternatif
+        "1.3.6.1.4.1.25355.3.2.6.3.2.1.38",
+        "1.3.6.1.4.1.25355.3.2.6.3.2.1.2",
+        "1.3.6.1.4.1.25355.3.2.6.3.2.1.3",
+        "1.3.6.1.4.1.25355.3.2.6.3.2.1.4",
+        "1.3.6.1.4.1.25355.3.2.6.3.2.1.10",
+    ]
     serial_oid = "1.3.6.1.4.1.25355.3.2.6.3.2.1.11"
     status_oid = "1.3.6.1.4.1.25355.3.2.6.3.2.1.39"
     dist_oid = "1.3.6.1.4.1.25355.3.2.6.3.2.1.25"
@@ -1265,7 +1296,24 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
     dists = snmp_bulk_walk(host, community, dist_oid, port=port, timeout=timeout)
     rxs = snmp_bulk_walk(host, community, rx_oid, port=port, timeout=timeout)
     txs = snmp_bulk_walk(host, community, tx_oid, port=port, timeout=timeout)
-    print(f"[SNMP] Hioso serial={len(serials)} status={len(statuses)} rx={len(rxs)} tx={len(txs)}")
+
+    # ambil description dari OID pertama yang berisi data non-generik
+    descs = {}
+    for d_oid in desc_oids:
+        try:
+            dmap = snmp_bulk_walk(host, community, d_oid, port=port, timeout=timeout) or {}
+            useful = 0
+            for sfx, val in dmap.items():
+                cl = _clean_display(val)
+                if cl and not _is_generic_onu_name(cl):
+                    descs[sfx] = cl
+                    useful += 1
+            if useful:
+                print(f"[SNMP] Hioso desc via {d_oid}: {useful} berguna")
+                break
+        except Exception as e:
+            print(f"[SNMP] Hioso desc {d_oid}: {e}")
+    print(f"[SNMP] Hioso serial={len(serials)} status={len(statuses)} rx={len(rxs)} desc={len(descs)}")
 
     onts: List[OnuInfo] = []
     for suffix, name in names.items():
@@ -1278,6 +1326,7 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
                 status_code = -1
             status = HIOSO_STATUS.get(status_code, "Unknown")
             serial = parse_serial(serials.get(suffix, ""))
+            serial = _clean_display(serial) or serial
             rx_val = _hioso_parse_power(rxs.get(suffix))
             tx_val = _hioso_parse_power(txs.get(suffix))
             dist = None
@@ -1288,9 +1337,23 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
                 pass
             if rx_val is not None and rx_val > -32 and status != "Online":
                 status = "Online"
+
+            raw_name = _clean_display(name)
+            desc = descs.get(suffix) or ""
+            # Prioritas: description pelanggan > name non-generik > serial > fallback
+            if desc and not _is_generic_onu_name(desc):
+                display = desc
+            elif raw_name and not _is_generic_onu_name(raw_name):
+                display = raw_name
+            elif serial:
+                display = serial
+            else:
+                display = raw_name or f"ONU-{pon}:{onu_id}"
+
             onts.append(OnuInfo(
                 board=board, pon=pon, onu_id=onu_id,
-                name=str(name).strip('"') if name else "",
+                name=display,
+                description=desc or raw_name,
                 serial=serial,
                 status=status,
                 status_code=status_code,

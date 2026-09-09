@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.4.3"
+APP_VERSION = "1.4.4"
 
 from flask import (
     Flask,
@@ -210,7 +210,7 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
             if not o.last_online:
                 o.last_online = h.get("last_online") or ""
         if olt_id:
-            onts = [o for o in onts if (o.olt_id or "") == olt_id or not o.olt_id]
+            onts = [o for o in onts if (o.olt_id or "") == olt_id]
         if filter_pon:
             try:
                 fb, fp = filter_pon.split("/")
@@ -323,7 +323,11 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
 
     # Merge ke cache: ganti data OLT yang di-refresh, pertahankan OLT lain
     refreshed_ids = {str(o.get("id")) for o in targets if o}
-    old = [o for o in (_cache["onts"] or []) if (o.olt_id or "") not in refreshed_ids]
+    # buang ONT tanpa olt_id (orphan cache lama yang bikin total ngaco)
+    old = [
+        o for o in (_cache["onts"] or [])
+        if (o.olt_id or "") and (o.olt_id or "") not in refreshed_ids
+    ]
     # Jika filter_pon: hanya replace ONT di PON itu untuk OLT tsb
     if filter_pon and fetched_all is not None:
         try:
@@ -345,7 +349,7 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
 
     onts = list(_cache["onts"])
     if olt_id:
-        onts = [o for o in onts if (o.olt_id or "") == olt_id or not o.olt_id]
+        onts = [o for o in onts if (o.olt_id or "") == olt_id]
     if filter_pon:
         try:
             fb, fp = filter_pon.split("/")

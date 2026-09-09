@@ -1218,10 +1218,23 @@ def _clean_display(val) -> str:
 
 
 def _is_generic_onu_name(name: str) -> bool:
+    """True jika bukan nama pelanggan yang berguna."""
     import re
     if not name:
         return True
-    return bool(re.match(r"^ONU[-:_\s]?\d", name, re.I)) or bool(re.match(r"^ONU\d*$", name, re.I))
+    s = str(name).strip()
+    if not s:
+        return True
+    # angka saja / status code / index
+    if re.fullmatch(r"\d+", s):
+        return True
+    if len(s) <= 2 and not re.search(r"[A-Za-z]{2,}", s):
+        return True
+    if re.match(r"^ONU[-:_\s]?\d", s, re.I) or re.match(r"^ONU\d*$", s, re.I):
+        return True
+    if s.lower() in ("online", "offline", "up", "down", "active", "inactive", "yes", "no"):
+        return True
+    return False
 
 
 HIOSO_STATUS = {
@@ -1253,7 +1266,7 @@ def _hioso_parse_power(raw) -> Optional[float]:
 
 
 def _parse_hioso_index(suffix: str) -> Tuple[int, int, int]:
-    """Index Hioso biasanya board.pon.onu_id atau pon.onu."""
+    """Index Hioso biasanya board.pon.onu_id"""
     parts = [p for p in str(suffix).strip(".").split(".") if p]
     nums = []
     for p in parts:
@@ -1262,15 +1275,7 @@ def _parse_hioso_index(suffix: str) -> Tuple[int, int, int]:
         except Exception:
             continue
     if len(nums) >= 3:
-        board, pon, onu_id = nums[0], nums[1], nums[2]
-        # guard: nilai absurd = ghost
-        if board <= 0 or board > 16:
-            board = 1
-        if pon <= 0 or pon > 64:
-            pon = 1
-        if onu_id < 0:
-            onu_id = 0
-        return board, pon, onu_id
+        return nums[0], nums[1], nums[2]
     if len(nums) == 2:
         return 1, nums[0], nums[1]
     if len(nums) == 1:
@@ -1278,63 +1283,12 @@ def _parse_hioso_index(suffix: str) -> Tuple[int, int, int]:
     return 1, 1, 0
 
 
-def _filter_hioso_ghost(onts: List[OnuInfo]) -> List[OnuInfo]:
-    """Buang entry ghost / index kosong Hioso."""
-    if not onts:
-        return onts
-    kept: List[OnuInfo] = []
-    ghost = 0
-    seen_serial = set()
-    seen_key = set()
-    for o in onts:
-        ser = (o.serial or "").strip().upper()
-        if ser and len(ser) < 4:
-            ser = ""
-        key = (o.board, o.pon, o.onu_id, ser or o.name)
-        if key in seen_key:
-            ghost += 1
-            continue
-        if ser and ser in seen_serial:
-            ghost += 1
-            continue
-        st = (o.status or "").lower()
-        is_empty = (
-            not ser
-            and o.rx_power is None
-            and st in ("offline", "unknown", "", "los")
-        )
-        if is_empty:
-            ghost += 1
-            continue
-        # ONU id 0 sering placeholder
-        if o.onu_id == 0 and not ser and o.rx_power is None:
-            ghost += 1
-            continue
-        seen_key.add(key)
-        if ser:
-            seen_serial.add(ser)
-        kept.append(o)
-    if ghost:
-        print(f"[SNMP] Hioso: dibuang {ghost} entry ghost")
-    # ringkas distribusi PON
-    from collections import Counter
-    c = Counter((o.board, o.pon) for o in kept)
-    print(f"[SNMP] Hioso PON map: {dict(c)}")
-    return kept
-
-
 def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", olt_name: str = "") -> List[OnuInfo]:
-    """Hioso EPON / HA73xx style — MIB 25355.3.2.6"""
-    # 37 sering isi label generik ONU-x:y; description di kolom lain
+    """
+    Hioso EPON — parser sederhana (versi awal yang stabil).
+    OID: name.37, serial.11, status.39, dist.25, rx/tx optical table.
+    """
     name_oid = "1.3.6.1.4.1.25355.3.2.6.3.2.1.37"
-    desc_oids = [
-        "1.3.6.1.4.1.25355.3.2.6.3.2.1.36",  # desc alternatif
-        "1.3.6.1.4.1.25355.3.2.6.3.2.1.38",
-        "1.3.6.1.4.1.25355.3.2.6.3.2.1.2",
-        "1.3.6.1.4.1.25355.3.2.6.3.2.1.3",
-        "1.3.6.1.4.1.25355.3.2.6.3.2.1.4",
-        "1.3.6.1.4.1.25355.3.2.6.3.2.1.10",
-    ]
     serial_oid = "1.3.6.1.4.1.25355.3.2.6.3.2.1.11"
     status_oid = "1.3.6.1.4.1.25355.3.2.6.3.2.1.39"
     dist_oid = "1.3.6.1.4.1.25355.3.2.6.3.2.1.25"
@@ -1342,7 +1296,7 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
     tx_oid = "1.3.6.1.4.1.25355.3.2.6.14.2.1.4"
 
     timeout = max(config.SNMP_TIMEOUT, 6)
-    print("[SNMP] Hioso EPON walk...")
+    print("[SNMP] Hioso EPON walk (classic)...")
     names = snmp_bulk_walk(host, community, name_oid, port=port, timeout=timeout)
     print(f"[SNMP] Hioso name: {len(names)}")
     if not names:
@@ -1353,24 +1307,14 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
     dists = snmp_bulk_walk(host, community, dist_oid, port=port, timeout=timeout)
     rxs = snmp_bulk_walk(host, community, rx_oid, port=port, timeout=timeout)
     txs = snmp_bulk_walk(host, community, tx_oid, port=port, timeout=timeout)
+    print(f"[SNMP] Hioso serial={len(serials)} status={len(statuses)} rx={len(rxs)} tx={len(txs)}")
 
-    # ambil description dari OID pertama yang berisi data non-generik
-    descs = {}
-    for d_oid in desc_oids:
-        try:
-            dmap = snmp_bulk_walk(host, community, d_oid, port=port, timeout=timeout) or {}
-            useful = 0
-            for sfx, val in dmap.items():
-                cl = _clean_display(val)
-                if cl and not _is_generic_onu_name(cl):
-                    descs[sfx] = cl
-                    useful += 1
-            if useful:
-                print(f"[SNMP] Hioso desc via {d_oid}: {useful} berguna")
-                break
-        except Exception as e:
-            print(f"[SNMP] Hioso desc {d_oid}: {e}")
-    print(f"[SNMP] Hioso serial={len(serials)} status={len(statuses)} rx={len(rxs)} desc={len(descs)}")
+    def _fmt_mac(s: str) -> str:
+        s = (s or "").strip().replace(":", "").replace("-", "").replace(".", "")
+        if len(s) == 12 and all(c in "0123456789abcdefABCDEF" for c in s):
+            s = s.lower()
+            return ":".join(s[i:i+2] for i in range(0, 12, 2))
+        return s
 
     onts: List[OnuInfo] = []
     for suffix, name in names.items():
@@ -1382,55 +1326,46 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
             except Exception:
                 status_code = -1
             status = HIOSO_STATUS.get(status_code, "Unknown")
-            serial = parse_serial(serials.get(suffix, ""))
-            serial = _clean_display(serial) or serial
+
+            serial = _fmt_mac(parse_serial(serials.get(suffix, "")))
+            # name langsung dari OID 37 (seperti versi lawas)
+            display = str(name).strip().strip('"') if name is not None else ""
+            display = "".join(ch for ch in display if ch.isprintable()).strip()
+            if not display or display.isdigit():
+                display = serial or f"ONU-{board}/{pon}:{onu_id}"
+
             rx_val = _hioso_parse_power(rxs.get(suffix))
+            # optical table kadang index beda — coba tanpa suffix match longgar
+            if rx_val is None:
+                for k, v in (rxs or {}).items():
+                    if str(k).endswith(str(suffix)) or str(suffix).endswith(str(k)):
+                        rx_val = _hioso_parse_power(v)
+                        if rx_val is not None:
+                            break
             tx_val = _hioso_parse_power(txs.get(suffix))
+            if tx_val is None:
+                for k, v in (txs or {}).items():
+                    if str(k).endswith(str(suffix)) or str(suffix).endswith(str(k)):
+                        tx_val = _hioso_parse_power(v)
+                        if tx_val is not None:
+                            break
+
             dist = None
             try:
                 if dists.get(suffix) is not None:
                     dist = int(dists.get(suffix))
             except Exception:
                 pass
+
             if rx_val is not None and rx_val > -32 and status != "Online":
                 status = "Online"
 
-            raw_name = _clean_display(name)
-            desc = descs.get(suffix) or ""
-            # Prioritas: description pelanggan > name non-generik > serial > fallback
-            if desc and not _is_generic_onu_name(desc):
-                display = desc
-            elif raw_name and not _is_generic_onu_name(raw_name):
-                display = raw_name
-            elif serial:
-                display = serial
-            else:
-                display = raw_name or f"ONU-{pon}:{onu_id}"
-
-            # Koreksi board/pon dari label "ONU-3:1" / "2/3:1" / "ONU-3-1"
-            m = re.search(r"(?:ONU[-_]?|)?(\d+)[/:](\d+)", raw_name or "", re.I)
-            if not m:
-                m = re.search(r"(?:ONU[-_]?|)?(\d+)[/:](\d+)", desc or "", re.I)
-            if m:
-                try:
-                    p2, o2 = int(m.group(1)), int(m.group(2))
-                    if 1 <= p2 <= 64 and o2 >= 0:
-                        # Hioso label sering PON:ONU tanpa board → board=1
-                        if board > 2 and p2 <= 8:
-                            board = 1
-                        pon = p2
-                        onu_id = o2
-                except Exception:
-                    pass
-            # Index SNMP kadang board=2 untuk semua → kalau pon sudah dari label, board=1
-            if board >= 2 and pon <= 8 and onu_id > 0:
-                # banyak HA7302 single-shelf: pakai board 1
-                board = 1
-
             onts.append(OnuInfo(
-                board=board, pon=pon, onu_id=onu_id,
+                board=board,
+                pon=pon,
+                onu_id=onu_id,
                 name=display,
-                description=desc or raw_name,
+                description=display,
                 serial=serial,
                 status=status,
                 status_code=status_code,
@@ -1443,7 +1378,9 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
             ))
         except Exception as e:
             print(f"[parse hioso epon] {suffix}: {e}")
-    return _filter_hioso_ghost(onts)
+
+    print(f"[SNMP] Hioso EPON classic result: {len(onts)} ONT")
+    return onts
 
 
 def _fetch_hioso_gpon(host: str, community: str, port: int, olt_id: str = "", olt_name: str = "") -> List[OnuInfo]:
@@ -1495,7 +1432,7 @@ def _fetch_hioso_gpon(host: str, community: str, port: int, olt_id: str = "", ol
             ))
         except Exception as e:
             print(f"[parse hioso gpon] {suffix}: {e}")
-    return _filter_hioso_ghost(onts)
+    return onts
 
 
 def detect_hioso_type(host: str, community: str, port: int = 161) -> Optional[str]:

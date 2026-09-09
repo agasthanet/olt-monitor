@@ -1249,7 +1249,7 @@ def _hioso_parse_power(raw) -> Optional[float]:
 
 
 def _parse_hioso_index(suffix: str) -> Tuple[int, int, int]:
-    """Index Hioso biasanya board.pon.onu_id"""
+    """Index Hioso biasanya board.pon.onu_id atau pon.onu."""
     parts = [p for p in str(suffix).strip(".").split(".") if p]
     nums = []
     for p in parts:
@@ -1258,12 +1258,50 @@ def _parse_hioso_index(suffix: str) -> Tuple[int, int, int]:
         except Exception:
             continue
     if len(nums) >= 3:
-        return nums[0], nums[1], nums[2]
+        board, pon, onu_id = nums[0], nums[1], nums[2]
+        # guard: nilai absurd = ghost
+        if board <= 0 or board > 16:
+            board = 1
+        if pon <= 0 or pon > 64:
+            pon = 1
+        if onu_id < 0:
+            onu_id = 0
+        return board, pon, onu_id
     if len(nums) == 2:
         return 1, nums[0], nums[1]
     if len(nums) == 1:
         return 1, 1, nums[0]
     return 1, 1, 0
+
+
+def _filter_hioso_ghost(onts: List[OnuInfo]) -> List[OnuInfo]:
+    """Buang entry ghost: tanpa serial, offline, tanpa Rx — sering sisa index kosong."""
+    if not onts:
+        return onts
+    kept: List[OnuInfo] = []
+    ghost = 0
+    seen_serial = set()
+    for o in onts:
+        ser = (o.serial or "").strip().upper()
+        # serial sangat pendek / garbage
+        if ser and len(ser) < 4:
+            ser = ""
+        if ser and ser in seen_serial:
+            ghost += 1
+            continue
+        is_empty = not ser and o.rx_power is None and (o.status or "").lower() in (
+            "offline", "unknown", "", "los"
+        )
+        # nama generik + kosong data
+        if is_empty and _is_generic_onu_name(o.name or ""):
+            ghost += 1
+            continue
+        if ser:
+            seen_serial.add(ser)
+        kept.append(o)
+    if ghost:
+        print(f"[SNMP] Hioso: dibuang {ghost} entry ghost")
+    return kept
 
 
 def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", olt_name: str = "") -> List[OnuInfo]:
@@ -1366,7 +1404,7 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
             ))
         except Exception as e:
             print(f"[parse hioso epon] {suffix}: {e}")
-    return onts
+    return _filter_hioso_ghost(onts)
 
 
 def _fetch_hioso_gpon(host: str, community: str, port: int, olt_id: str = "", olt_name: str = "") -> List[OnuInfo]:
@@ -1418,7 +1456,7 @@ def _fetch_hioso_gpon(host: str, community: str, port: int, olt_id: str = "", ol
             ))
         except Exception as e:
             print(f"[parse hioso gpon] {suffix}: {e}")
-    return onts
+    return _filter_hioso_ghost(onts)
 
 
 def detect_hioso_type(host: str, community: str, port: int = 161) -> Optional[str]:

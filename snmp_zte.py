@@ -1238,9 +1238,11 @@ def _is_generic_onu_name(name: str) -> bool:
 
 
 HIOSO_STATUS = {
-    1: "Online",
-    2: "Offline",
+    1: "Online",   # Up
+    2: "Offline",  # Down / PwrDown
     3: "Offline",
+    4: "Offline",
+    5: "Offline",
     0: "Unknown",
 }
 
@@ -1319,6 +1321,9 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
     onts: List[OnuInfo] = []
     for suffix, name in names.items():
         board, pon, onu_id = _parse_hioso_index(suffix)
+        # Web Hioso HA7304 menampilkan slot 0-based (0/2:1), SNMP sering 1-based (1.2.1)
+        if board >= 1:
+            board = board - 1
         try:
             st_raw = statuses.get(suffix)
             try:
@@ -1326,13 +1331,23 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
             except Exception:
                 status_code = -1
             status = HIOSO_STATUS.get(status_code, "Unknown")
+            # string status dari SNMP
+            if status == "Unknown" and st_raw is not None:
+                s = str(st_raw).strip().lower()
+                if s in ("1", "up", "online", "active"):
+                    status = "Online"
+                elif s in ("2", "3", "4", "5", "down", "offline", "pwrdown", "los"):
+                    status = "Offline"
 
             serial = _fmt_mac(parse_serial(serials.get(suffix, "")))
-            # name langsung dari OID 37 (seperti versi lawas)
+            # name dari OID 37; kosong/"NA" → biarkan NA atau serial
             display = str(name).strip().strip('"') if name is not None else ""
             display = "".join(ch for ch in display if ch.isprintable()).strip()
             if not display or display.isdigit():
-                display = serial or f"ONU-{board}/{pon}:{onu_id}"
+                display = "NA"
+            if display.upper() == "NA" and serial:
+                # tetap tampilkan NA seperti web Hioso, serial di kolom sendiri
+                display = "NA"
 
             rx_val = _hioso_parse_power(rxs.get(suffix))
             # optical table kadang index beda — coba tanpa suffix match longgar

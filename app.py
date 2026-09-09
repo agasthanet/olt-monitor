@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.4.4"
+APP_VERSION = "1.4.5"
 
 from flask import (
     Flask,

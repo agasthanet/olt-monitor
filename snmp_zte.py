@@ -1275,32 +1275,47 @@ def _parse_hioso_index(suffix: str) -> Tuple[int, int, int]:
 
 
 def _filter_hioso_ghost(onts: List[OnuInfo]) -> List[OnuInfo]:
-    """Buang entry ghost: tanpa serial, offline, tanpa Rx — sering sisa index kosong."""
+    """Buang entry ghost / index kosong Hioso."""
     if not onts:
         return onts
     kept: List[OnuInfo] = []
     ghost = 0
     seen_serial = set()
+    seen_key = set()
     for o in onts:
         ser = (o.serial or "").strip().upper()
-        # serial sangat pendek / garbage
         if ser and len(ser) < 4:
             ser = ""
+        key = (o.board, o.pon, o.onu_id, ser or o.name)
+        if key in seen_key:
+            ghost += 1
+            continue
         if ser and ser in seen_serial:
             ghost += 1
             continue
-        is_empty = not ser and o.rx_power is None and (o.status or "").lower() in (
-            "offline", "unknown", "", "los"
+        st = (o.status or "").lower()
+        is_empty = (
+            not ser
+            and o.rx_power is None
+            and st in ("offline", "unknown", "", "los")
         )
-        # nama generik + kosong data
-        if is_empty and _is_generic_onu_name(o.name or ""):
+        if is_empty:
             ghost += 1
             continue
+        # ONU id 0 sering placeholder
+        if o.onu_id == 0 and not ser and o.rx_power is None:
+            ghost += 1
+            continue
+        seen_key.add(key)
         if ser:
             seen_serial.add(ser)
         kept.append(o)
     if ghost:
         print(f"[SNMP] Hioso: dibuang {ghost} entry ghost")
+    # ringkas distribusi PON
+    from collections import Counter
+    c = Counter((o.board, o.pon) for o in kept)
+    print(f"[SNMP] Hioso PON map: {dict(c)}")
     return kept
 
 
@@ -1387,6 +1402,26 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
                 display = serial
             else:
                 display = raw_name or f"ONU-{pon}:{onu_id}"
+
+            # Koreksi board/pon dari label "ONU-3:1" / "2/3:1" / "ONU-3-1"
+            m = re.search(r"(?:ONU[-_]?|)?(\d+)[/:](\d+)", raw_name or "", re.I)
+            if not m:
+                m = re.search(r"(?:ONU[-_]?|)?(\d+)[/:](\d+)", desc or "", re.I)
+            if m:
+                try:
+                    p2, o2 = int(m.group(1)), int(m.group(2))
+                    if 1 <= p2 <= 64 and o2 >= 0:
+                        # Hioso label sering PON:ONU tanpa board → board=1
+                        if board > 2 and p2 <= 8:
+                            board = 1
+                        pon = p2
+                        onu_id = o2
+                except Exception:
+                    pass
+            # Index SNMP kadang board=2 untuk semua → kalau pon sudah dari label, board=1
+            if board >= 2 and pon <= 8 and onu_id > 0:
+                # banyak HA7302 single-shelf: pakai board 1
+                board = 1
 
             onts.append(OnuInfo(
                 board=board, pon=pon, onu_id=onu_id,

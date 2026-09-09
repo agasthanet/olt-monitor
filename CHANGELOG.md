@@ -5,6 +5,15 @@ Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug / penyempurnaan; *
 
 ---
 
+## [1.5.2] — 2026-09-09 · **STABLE**
+
+Rilis stabil untuk produksi. Tag GitHub: `v1.5.2`.
+
+### Fixed
+- Hioso: lokasi disesuaikan **0-based** seperti web HA7304 (`0/2:1` bukan `1/2:1`)
+- Status string Up/PwrDown dikenali
+- Nama kosong tampil `NA` seperti NMS Hioso
+
 ## [1.5.1] — 2026-09-09
 
 ### Fixed

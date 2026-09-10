@@ -5,6 +5,14 @@ Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug / penyempurnaan; *
 
 ---
 
+## [1.5.6] — 2026-09-10
+
+### Added
+- **Update dari GitHub** di Settings: setelah `git pull` sukses, **auto-restart** app
+  - prioritas: `systemctl restart olt-monitor`
+  - fallback: re-spawn proses `python app.py`
+- UI menunggu app hidup lagi lalu reload halaman
+
 ## [1.5.5] — 2026-09-10
 
 ### Fixed

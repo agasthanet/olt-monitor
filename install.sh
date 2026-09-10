@@ -48,10 +48,75 @@ source venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
 
+# Resolve absolute path + python for systemd
+APP_DIR="$(cd "$DIR" && pwd)"
+PY="$APP_DIR/venv/bin/python"
+# User yang menjalankan install (hindari root di service jika mungkin)
+SVC_USER="${SUDO_USER:-${USER:-root}}"
+if [ "$SVC_USER" = "root" ] && [ -n "${SUDO_USER:-}" ]; then
+  SVC_USER="$SUDO_USER"
+fi
+
 echo ""
-echo "=== Selesai ==="
-echo "Jalankan:"
-echo "  cd $DIR"
-echo "  source venv/bin/activate"
-echo "  python app.py"
-echo "Lalu buka http://127.0.0.1:5000"
+echo "=== Selesai install paket ==="
+echo "Folder : $APP_DIR"
+echo ""
+
+# ---- Auto-start systemd (opsional) ----
+install_systemd() {
+  local unit="/etc/systemd/system/olt-monitor.service"
+  echo "Memasang systemd service (user=$SVC_USER) ..."
+  sudo tee "$unit" > /dev/null << EOF
+[Unit]
+Description=OLT MONITOR
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$SVC_USER
+WorkingDirectory=$APP_DIR
+ExecStart=$PY app.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  sudo systemctl daemon-reload
+  sudo systemctl enable olt-monitor
+  sudo systemctl restart olt-monitor
+  echo ""
+  echo "Service aktif. Cek status:"
+  echo "  sudo systemctl status olt-monitor"
+  echo "Log:"
+  echo "  sudo journalctl -u olt-monitor -f"
+  echo "Stop / disable:"
+  echo "  sudo systemctl stop olt-monitor"
+  echo "  sudo systemctl disable olt-monitor"
+}
+
+if [ "${INSTALL_SYSTEMD:-}" = "1" ] || [ "${INSTALL_SYSTEMD:-}" = "yes" ]; then
+  install_systemd
+else
+  echo "Auto-start systemd? [y/N]"
+  read -r ans || ans=""
+  case "${ans:-}" in
+    y|Y|yes|YES)
+      install_systemd
+      ;;
+    *)
+      echo "Lewati systemd. Jalankan manual:"
+      echo "  cd $APP_DIR"
+      echo "  source venv/bin/activate"
+      echo "  python app.py"
+      echo ""
+      echo "Atau pasang service nanti:"
+      echo "  INSTALL_SYSTEMD=1 ./install.sh"
+      ;;
+  esac
+fi
+
+echo ""
+echo "Buka http://IP-SERVER:5000"

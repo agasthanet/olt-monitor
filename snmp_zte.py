@@ -1067,10 +1067,10 @@ def fetch_all_onts(
     olt_id: str = "",
     olt_name: str = "",
     vendor: str = "zte",
-) -> List[OnuInfo]:
+) -> tuple:
     """
-    Ambil ONT.
-    vendor: zte | hioso | auto
+    Ambil ONT. Return (list[OnuInfo], vendor_yang_cocok|None).
+    vendor: zte | hioso | hsairpo | auto
     """
     host = host or config.OLT_IP
     community = community or config.SNMP_COMMUNITY
@@ -1084,7 +1084,7 @@ def fetch_all_onts(
         for o in onts:
             o.olt_id = olt_id or "demo"
             o.olt_name = olt_name or "DEMO"
-        return onts
+        return onts, "demo"
 
     print(f"[SNMP] Connect ke {host}:{port} community={community} vendor={vendor} olt={olt_id or '-'}")
     sysdescr = snmp_get(host, community, "1.3.6.1.2.1.1.1.0", port=port, timeout=config.SNMP_TIMEOUT)
@@ -1093,7 +1093,7 @@ def fetch_all_onts(
         sysdescr = snmp_get(host, community, "1.3.6.1.2.1.1.5.0", port=port, timeout=config.SNMP_TIMEOUT)
     if sysdescr is None:
         print("[SNMP] GAGAL connect ke OLT.")
-        return []
+        return [], None
     print(f"[SNMP] OLT merespons: {sysdescr}")
 
     vendor_setting = (vendor or "auto").lower().strip()
@@ -1173,6 +1173,7 @@ def fetch_all_onts(
 
     print(f"[SNMP] Vendor chain: {chain}")
     last: List[OnuInfo] = []
+    used_vendor: Optional[str] = None
     for v in chain:
         print(f"[SNMP] === Coba vendor={v} ===")
         try:
@@ -1187,8 +1188,11 @@ def fetch_all_onts(
             last = []
         print(f"[SNMP] vendor={v} → {len(last)} ONT")
         if last:
-            return last
-    return last
+            used_vendor = v
+            print(f"[SNMP] Vendor cocok: {v} ({len(last)} ONT)")
+            break
+    # second return value: vendor yang berhasil (untuk di-lock di olts.json)
+    return last, used_vendor
 
 
 # ============================================================

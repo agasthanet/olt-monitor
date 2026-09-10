@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.5.5"
+APP_VERSION = "1.5.6"
 
 from flask import (
     Flask,
@@ -839,25 +839,22 @@ def api_version():
 
 @app.route("/api/update", methods=["POST"])
 def api_update():
-    """Update via git pull. Butuh repo git + jaringan ke GitHub."""
+    """Update via git pull, lalu auto-restart app (systemd atau re-spawn)."""
     import subprocess
     import sys
+    import os
     root = _Path(__file__).resolve().parent
     logs = []
-    is_win = sys.platform.startswith("win")
 
-    # Cek .git
     if not (root / ".git").exists():
         return jsonify({
             "ok": False,
-            "msg": "Folder app belum terhubung Git. "
-                   "Clone dari GitHub, atau update manual dari ZIP. "
-                   "Lihat README (Update aplikasi).",
+            "msg": "Folder app belum terhubung Git. Clone dari GitHub atau update manual dari ZIP.",
             "log": "Tidak ada folder .git di: " + str(root),
+            "restarting": False,
         })
 
     try:
-        # pastikan remote
         rem = subprocess.run(
             ["git", "remote", "-v"],
             cwd=str(root), capture_output=True, text=True, timeout=15,
@@ -887,26 +884,70 @@ def api_update():
                     "ok": False,
                     "msg": "git pull gagal. Cek jaringan / login GitHub, atau update via ZIP.",
                     "log": "\n".join(logs)[-2000:],
+                    "restarting": False,
                 })
 
         ver = APP_VERSION
         vf = root / "VERSION"
         if vf.exists():
             ver = vf.read_text(encoding="utf-8").strip().split()[0]
+
+        # --- schedule auto restart ---
+        def _do_restart():
+            import time as _t
+            _t.sleep(1.5)
+            # 1) systemd service
+            for cmd in (
+                ["systemctl", "restart", "olt-monitor"],
+                ["sudo", "systemctl", "restart", "olt-monitor"],
+            ):
+                try:
+                    r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
+                    if r.returncode == 0:
+                        print("[UPDATE] restart via", " ".join(cmd))
+                        return
+                except Exception as e:
+                    print("[UPDATE] systemctl:", e)
+            # 2) re-spawn proses yang sama lalu exit
+            try:
+                py = sys.executable
+                args = [py] + sys.argv
+                print("[UPDATE] re-spawn:", args)
+                subprocess.Popen(
+                    args,
+                    cwd=str(root),
+                    start_new_session=True,
+                    env=os.environ.copy(),
+                )
+            except Exception as e:
+                print("[UPDATE] respawn error:", e)
+            os._exit(0)
+
+        import threading
+        threading.Thread(target=_do_restart, name="olt-restart", daemon=True).start()
+        print("[UPDATE] scheduled after git pull, version file=", ver)
+
         return jsonify({
             "ok": True,
-            "msg": f"Update OK (file VERSION={ver}). WAJIB restart: stop app lalu jalankan lagi python app.py",
+            "msg": f"Update OK (VERSION={ver}). Aplikasi akan restart otomatis ~2 detik…",
             "version": ver,
             "log": "\n".join(logs)[-1500:],
+            "restarting": True,
         })
     except FileNotFoundError:
         return jsonify({
             "ok": False,
             "msg": "Perintah git tidak ditemukan. Install Git, atau update manual dari ZIP.",
             "log": "",
+            "restarting": False,
         })
     except Exception as e:
-        return jsonify({"ok": False, "msg": str(e), "log": "\n".join(logs)[-1000:]})
+        return jsonify({
+            "ok": False,
+            "msg": str(e),
+            "log": "\n".join(logs)[-1000:],
+            "restarting": False,
+        })
 
 
 @app.route("/api/ping")

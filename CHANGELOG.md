@@ -5,6 +5,16 @@ Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug / penyempurnaan; *
 
 ---
 
+## [1.5.4] — 2026-09-09
+
+### Added
+- Vendor **Auto**: setelah menemukan vendor yang cocok, otomatis **dikunci** di `olts.json` (refresh berikutnya langsung path itu, lebih cepat)
+
+## [1.5.3] — 2026-09-09
+
+### Added
+- Dropdown list OLT: **merah + [RTO]** jika ping gagal, hijau jika UP
+
 ## [1.5.2] — 2026-09-09 · **STABLE**
 
 Rilis stabil untuk produksi. Tag GitHub: `v1.5.2`.

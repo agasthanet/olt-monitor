@@ -129,9 +129,23 @@
   <form method="get" class="row g-2 align-items-end">
     <div class="col-md-2">
       <label class="form-label small mb-1">OLT</label>
-      <select name="olt" class="form-select form-select-sm" onchange="this.form.submit()">
+      <select name="olt" id="oltSelect" class="form-select form-select-sm" onchange="this.form.submit()">
         {% for o in olts_list %}
-        <option value="{{ o.id }}" {% if filter_olt == o.id %}selected{% endif %}>{{ o.name }} ({{ o.ip }})</option>
+          {% set ps = (ping_all or {}).get(o.id) %}
+          {% if ps and ps.ok %}
+            {% set clr = '#198754' %}
+            {% set mark = '' %}
+          {% elif ps and not ps.ok %}
+            {% set clr = '#dc3545' %}
+            {% set mark = ' [RTO]' %}
+          {% else %}
+            {% set clr = '' %}
+            {% set mark = '' %}
+          {% endif %}
+        <option value="{{ o.id }}"
+                data-olt-id="{{ o.id }}"
+                {% if clr %}style="color: {{ clr }}; font-weight: {% if not ps.ok %}600{% else %}400{% endif %};"{% endif %}
+                {% if filter_olt == o.id %}selected{% endif %}>{{ o.name }} ({{ o.ip }}){{ mark }}</option>
         {% endfor %}
       </select>
     </div>
@@ -456,6 +470,25 @@
       }
     }, 100);
   }
+
+
+  // warnai dropdown OLT: merah jika RTO
+  (function colorOltSelect(){
+    var sel = document.getElementById('oltSelect');
+    if (!sel) return;
+    var opt = sel.options[sel.selectedIndex];
+    if (!opt) return;
+    var st = (opt.getAttribute('style') || '');
+    if (st.indexOf('#dc3545') >= 0 || (opt.textContent || '').indexOf('[RTO]') >= 0) {
+      sel.style.color = '#dc3545';
+      sel.style.fontWeight = '600';
+      sel.classList.add('border-danger');
+    } else if (st.indexOf('#198754') >= 0) {
+      sel.style.color = '#198754';
+      sel.style.fontWeight = '';
+      sel.classList.remove('border-danger');
+    }
+  })();
 
   if (oltId) {
     waitChart(function() {

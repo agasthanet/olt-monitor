@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.5.2"
+APP_VERSION = "1.5.4"
 
 from flask import (
     Flask,
@@ -299,7 +299,7 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
                 flash(f"Hioso CLI gagal ({oid}): {e}", "danger")
                 part = []
         else:
-            part = fetch_all_onts(
+            result = fetch_all_onts(
                 host=olt.get("ip"),
                 community=olt.get("community", config.SNMP_COMMUNITY),
                 boards=olt.get("boards") or config.BOARDS,
@@ -310,6 +310,22 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
                 olt_name=olt.get("name") or oid,
                 vendor=vendor,
             )
+            if isinstance(result, tuple):
+                part, detected_vendor = result
+            else:
+                part, detected_vendor = result, None
+            # Kunci vendor auto → vendor yang cocok (refresh berikutnya lebih cepat)
+            if (
+                detected_vendor
+                and detected_vendor not in ("demo",)
+                and str(vendor or "auto").lower() in ("auto", "", "none")
+                and part
+            ):
+                try:
+                    _lock_olt_vendor(oid, detected_vendor)
+                    print(f"[APP] Vendor AUTO dikunci: {oid} → {detected_vendor}")
+                except Exception as e:
+                    print(f"[APP] Gagal kunci vendor: {e}")
         part = apply_odp_to_onts(part, load_odp_mapping())
         part = apply_downtime_tracking(part)
         print(f"[APP] OLT {oid}: {len(part)} ONT dalam {time.time()-t0:.1f}s")

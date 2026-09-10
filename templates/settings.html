@@ -168,7 +168,7 @@
         <div id="verMsg" class="small"></div>
         <pre id="verLog" class="small bg-light p-2 rounded mt-2 d-none" style="max-height:160px;overflow:auto;"></pre>
         <p class="small text-muted mb-0 mt-2">
-          Setelah update, <strong>restart</strong> <code>python app.py</code>. Folder <code>data/</code> aman.
+          Setelah update, app <strong>auto-restart</strong> (systemd atau re-spawn). Folder <code>data/</code> aman.
         </p>
       </div>
     </div>
@@ -294,15 +294,36 @@ document.addEventListener('DOMContentLoaded', function() {
 
   if (btnU) {
     btnU.addEventListener('click', async function() {
-      if (!confirm('Update dari GitHub? data/ aman. Setelah itu restart app.')) return;
+      if (!confirm('Update dari GitHub? Folder data/ aman. App akan auto-restart.')) return;
       btnU.disabled = true;
-      show('Updating...', true);
+      show('Updating dari GitHub...', true);
       try {
         var r = await fetch('/api/update', { method: 'POST' });
         var j = await r.json();
         show(j.msg || (j.ok ? 'OK' : 'Gagal'), !!j.ok);
         if (j.log) showLog(j.log);
         if (j.version) document.getElementById('localVer').textContent = j.version;
+        if (j.ok && j.restarting) {
+          show((j.msg || 'Update OK') + ' Menunggu app hidup lagi…', true);
+          var tries = 0;
+          var t = setInterval(async function() {
+            tries++;
+            try {
+              var p = await fetch('/api/version', { cache: 'no-store' });
+              if (p.ok) {
+                clearInterval(t);
+                show('App sudah restart. Memuat ulang halaman…', true);
+                setTimeout(function(){ location.reload(); }, 800);
+              }
+            } catch (e) {}
+            if (tries > 40) {
+              clearInterval(t);
+              show('Timeout menunggu restart. Refresh manual atau cek systemctl status olt-monitor.', false);
+              btnU.disabled = false;
+            }
+          }, 1500);
+          return;
+        }
       } catch (e) {
         show('Error: ' + e, false);
       }

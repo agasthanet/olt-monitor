@@ -5,6 +5,14 @@ Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug / penyempurnaan; *
 
 ---
 
+## [1.5.5] — 2026-09-10
+
+### Fixed
+- Inline edit ODP: endpoint `/api/odp` (sebelumnya hanya `/api/set-odp` → response HTML → error JSON)
+
+### Added
+- `install.sh`: opsi pasang **systemd** auto-start
+
 ## [1.5.4] — 2026-09-09
 
 ### Added

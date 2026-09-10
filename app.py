@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.5.4"
+APP_VERSION = "1.5.5"
 
 from flask import (
     Flask,
@@ -734,6 +734,7 @@ def settings():
 
 
 @app.route("/api/set-odp", methods=["POST"])
+@app.route("/api/odp", methods=["POST"])
 def api_set_odp():
     """Update mapping ODP by serial (inline edit dari dashboard)."""
     data = request.get_json(silent=True) or request.form

@@ -1,0 +1,22 @@
+# runtime / secrets
+.env
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.backup_*/
+*.zip
+
+# production data (jangan di-commit)
+data/olts.json
+data/license.json
+data/onts_cache.json
+data/status_history.json
+data/ping_history.json
+data/*.local.*
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,10 +1,3 @@
-## [1.6.0] — 2026-09-11
-
-### Changed
-- License Full max 5 OLT (Trial tetap 1)
-- Keygen disesuaikan
-
-
 # Changelog — OLT MONITOR
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/).  
@@ -209,7 +202,6 @@ Rilis stabil untuk produksi. Tag GitHub: `v1.5.2`.
 - Multi-OLT dashboard (status, Rx/Tx, ODP, downtime)
 - Vendor: ZTE C320 SNMP, Hioso SNMP, HS-EPT1004 CLI, Hioso HA7302 CLI
 - Mapping ODP inline + CSV
-- Lisensi Trial (1 OLT) / Full (HWID)
 - Background refresh ONT 30 menit
 - Auto ping 5 detik + grafik latency
 - Health OLT (CPU/Memory/Uptime via SNMP bila available)

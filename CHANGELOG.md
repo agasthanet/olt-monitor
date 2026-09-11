@@ -1,3 +1,10 @@
+## [1.6.0] — 2026-09-11
+
+### Changed
+- License Full max 5 OLT (Trial tetap 1)
+- Keygen disesuaikan
+
+
 # Changelog — OLT MONITOR
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/).  

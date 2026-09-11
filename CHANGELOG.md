@@ -5,6 +5,16 @@ Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug / penyempurnaan; *
 
 ---
 
+## [1.5.8] — 2026-09-10
+
+### Removed
+- Fitur **Waktu Host / NTP / Timezone** di Settings (di-rollback)
+
+## [1.5.7] — 2026-09-10
+
+### Added
+- Settings: **Waktu Host** — atur timezone (WIB/WITA/WIT) + NTP server via `timedatectl`
+
 ## [1.5.6] — 2026-09-10
 
 ### Added

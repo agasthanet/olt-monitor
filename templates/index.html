@@ -178,7 +178,7 @@
     <div class="col-md-3">
       <label class="form-label small mb-1">Cari (nama / serial / ODP)</label>
       <input type="text" name="q" id="searchBox" class="form-control form-control-sm"
-             value="{{ search }}" placeholder="Ketik untuk mencari (otomatis)..." autocomplete="off">
+             value="{{ search }}" placeholder="Ketik untuk mencari (auto 5 dtk)..." autocomplete="off">
     </div>
   </form>
   <script>
@@ -188,7 +188,7 @@
     var t = null;
     box.addEventListener('input', function(){
       clearTimeout(t);
-      t = setTimeout(function(){ box.form.submit(); }, 450);
+      t = setTimeout(function(){ box.form.submit(); }, 5000);
     });
     box.addEventListener('keydown', function(e){
       if (e.key === 'Enter') { e.preventDefault(); clearTimeout(t); box.form.submit(); }

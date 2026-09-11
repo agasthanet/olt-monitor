@@ -159,7 +159,7 @@
     </div>
     <div class="col-md-2">
       <label class="form-label small mb-1">Filter PON</label>
-      <select name="pon" class="form-select form-select-sm">
+      <select name="pon" class="form-select form-select-sm" onchange="this.form.submit()">
         <option value="">Semua PON</option>
         {% for p in all_pons %}
         <option value="{{ p }}" {% if filter_pon == p %}selected{% endif %}>{{ p }}</option>
@@ -168,7 +168,7 @@
     </div>
     <div class="col-md-3">
       <label class="form-label small mb-1">Filter ODP</label>
-      <select name="odp" class="form-select form-select-sm">
+      <select name="odp" class="form-select form-select-sm" onchange="this.form.submit()">
         <option value="">Semua ODP</option>
         {% for o in all_odps %}
         <option value="{{ o }}" {% if filter_odp == o %}selected{% endif %}>{{ o }}</option>
@@ -177,14 +177,24 @@
     </div>
     <div class="col-md-3">
       <label class="form-label small mb-1">Cari (nama / serial / ODP)</label>
-      <input type="text" name="q" class="form-control form-control-sm" value="{{ search }}" placeholder="Ketik untuk mencari...">
-    </div>
-    <div class="col-md-2">
-      <button type="submit" class="btn btn-primary btn-sm w-100">
-        <i class="bi bi-funnel"></i> Filter
-      </button>
+      <input type="text" name="q" id="searchBox" class="form-control form-control-sm"
+             value="{{ search }}" placeholder="Ketik untuk mencari (otomatis)..." autocomplete="off">
     </div>
   </form>
+  <script>
+  (function(){
+    var box = document.getElementById('searchBox');
+    if (!box) return;
+    var t = null;
+    box.addEventListener('input', function(){
+      clearTimeout(t);
+      t = setTimeout(function(){ box.form.submit(); }, 450);
+    });
+    box.addEventListener('keydown', function(e){
+      if (e.key === 'Enter') { e.preventDefault(); clearTimeout(t); box.form.submit(); }
+    });
+  })();
+  </script>
   <div class="mt-2 small text-muted d-flex flex-wrap gap-2 align-items-center">
     <span>Update terakhir: <strong>{{ last_update }}</strong>
       {% if cache_age is not none %}(cache {{ cache_age }}s){% endif %}

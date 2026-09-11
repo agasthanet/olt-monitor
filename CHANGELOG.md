@@ -5,6 +5,12 @@ Versioning: **MAJOR** = fitur baru; **MINOR** = perbaikan bug / penyempurnaan; *
 
 ---
 
+## [1.5.9] — 2026-09-11
+
+### Changed
+- Tombol **Filter** dihapus — filter OLT/PON/ODP/tampilan **otomatis** saat diganti
+- Kotak cari submit otomatis setelah berhenti mengetik (~0,45 dtk)
+
 ## [1.5.8] — 2026-09-10
 
 ### Removed

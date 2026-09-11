@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.5.9"
+APP_VERSION = "1.6.1"
 
 from flask import (
     Flask,
@@ -699,7 +699,7 @@ def settings():
 
         if action == "deactivate_license":
             license_deactivate()
-            flash("Mode kembali ke Trial (max 1 OLT).", "warning")
+            flash("Mode kembali ke Trial (max 1 OLT). Full max 5 OLT.", "warning")
             return redirect(url_for("settings"))
 
         if action == "delete_olt":

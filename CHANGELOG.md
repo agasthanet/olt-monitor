@@ -1,3 +1,10 @@
+## [1.6.3] — 2026-09-11
+
+### Fixed
+- Urutan grup PON numerik (`2/1`…`2/9`…`2/10`, bukan lexicographic)
+- Uptime health: deteksi TimeTicks vs detik (HS-EPT dll)
+- Memory: fallback UCD-SNMP MIB
+
 # Changelog — OLT MONITOR
 
 Format berdasarkan [Keep a Changelog](https://keepachangelog.com/).  

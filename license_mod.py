@@ -1,5 +1,7 @@
 """
-License: Trial (max 1 OLT) vs Full (max 5 OLT, key bound to HWID).
+License: Trial (max 1 OLT) vs Full (kelipatan 5 OLT: 5/10/15/..., key + HWID).
+Format key: FULL-05-XXXXX-XXXXX-XXXXX-XXXXX  (05 = limit OLT)
+Key lama FULL-XXXXX-... (tanpa angka) dihitung max 5 OLT.
 """
 from __future__ import annotations
 
@@ -11,24 +13,24 @@ import re
 import uuid
 from pathlib import Path
 
-# Secret untuk sign key — ganti di production kalau mau
 _SECRET = b"OLT-MONITOR-xAI-2026-CyberPlus-HWID-KEY"
 
 _DATA = Path(__file__).resolve().parent / "data"
 _LICENSE_FILE = _DATA / "license.json"
 
+TRIAL_MAX_OLTS = 1
+DEFAULT_FULL_MAX = 5  # key legacy / fallback
+
 
 def get_hwid() -> str:
-    """Hardware ID stabil per mesin (Windows/Linux)."""
     parts = []
     try:
-        parts.append(str(uuid.getnode()))  # MAC-based
+        parts.append(str(uuid.getnode()))
     except Exception:
         pass
     parts.append(platform.node() or "")
     parts.append(platform.system() or "")
     parts.append(platform.machine() or "")
-    # Windows: machine guid if available
     try:
         if platform.system() == "Windows":
             import winreg
@@ -43,35 +45,93 @@ def get_hwid() -> str:
         pass
     raw = "|".join(parts)
     digest = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest().upper()
-    # format groups: XXXX-XXXX-XXXX-XXXX
     return "-".join(digest[i : i + 4] for i in range(0, 16, 4))
-
-
-def generate_key(hwid: str) -> str:
-    """Generate full license key untuk HWID tertentu (dipakai keygen)."""
-    h = _normalize_hwid(hwid)
-    sig = hmac.new(_SECRET, h.encode("utf-8"), hashlib.sha256).hexdigest().upper()
-    # 20 hex chars grouped
-    body = sig[:20]
-    return "FULL-" + "-".join(body[i : i + 5] for i in range(0, 20, 5))
 
 
 def _normalize_hwid(hwid: str) -> str:
     return re.sub(r"[^0-9A-Fa-f]", "", (hwid or "")).upper()
 
 
+def normalize_limit(n: int) -> int:
+    """Paksa kelipatan 5, minimum 5."""
+    try:
+        n = int(n)
+    except Exception:
+        n = DEFAULT_FULL_MAX
+    if n < 5:
+        n = 5
+    # bulatkan ke atas ke kelipatan 5
+    if n % 5:
+        n = ((n // 5) + 1) * 5
+    return n
+
+
+def generate_key(hwid: str, max_olts: int = 5) -> str:
+    """Generate Full key untuk HWID + limit OLT (kelipatan 5)."""
+    h = _normalize_hwid(hwid)
+    if len(h) < 8:
+        raise ValueError("HWID terlalu pendek / tidak valid")
+    limit = normalize_limit(max_olts)
+    payload = f"{h}:{limit}".encode("utf-8")
+    sig = hmac.new(_SECRET, payload, hashlib.sha256).hexdigest().upper()
+    body = sig[:20]
+    groups = "-".join(body[i : i + 5] for i in range(0, 20, 5))
+    return f"FULL-{limit:02d}-{groups}"
+
+
+def parse_key(key: str) -> tuple[int | None, str]:
+    """
+    Return (limit, signature_part).
+    limit None = format tidak dikenal.
+    Legacy FULL-XXXXX-XXXXX-XXXXX-XXXXX → limit 5.
+    """
+    key = (key or "").strip().upper().replace(" ", "")
+    if not key.startswith("FULL-"):
+        return None, ""
+    parts = key.split("-")
+    # FULL-05-AAAAA-BBBBB-CCCCC-DDDDD → ['FULL','05','AAAAA',...]
+    if len(parts) >= 6 and parts[1].isdigit():
+        limit = int(parts[1])
+        sig = "-".join(parts[2:])
+        return limit, sig
+    # Legacy FULL-AAAAA-BBBBB-CCCCC-DDDDD
+    if len(parts) >= 5 and not parts[1].isdigit():
+        return DEFAULT_FULL_MAX, "-".join(parts[1:])
+    return None, ""
+
+
 def validate_key(key: str, hwid: str | None = None) -> bool:
+    key = (key or "").strip().upper()
     if not key:
         return False
-    key = key.strip().upper()
     hwid = hwid or get_hwid()
-    expected = generate_key(hwid).upper()
-    # allow with/without FULL- prefix noise
-    return key.replace(" ", "") == expected.replace(" ", "")
+    limit, _ = parse_key(key)
+    if limit is None:
+        return False
+    # legacy: also accept old hmac(hwid only) for limit 5
+    expected = generate_key(hwid, limit).upper().replace(" ", "")
+    got = key.replace(" ", "")
+    if got == expected:
+        return True
+    # legacy key without limit digit in format
+    if limit == DEFAULT_FULL_MAX:
+        h = _normalize_hwid(hwid)
+        sig = hmac.new(_SECRET, h.encode("utf-8"), hashlib.sha256).hexdigest().upper()[:20]
+        legacy = "FULL-" + "-".join(sig[i : i + 5] for i in range(0, 20, 5))
+        if got == legacy.upper():
+            return True
+    return False
+
+
+def key_limit(key: str) -> int:
+    limit, _ = parse_key(key)
+    if limit is None:
+        return TRIAL_MAX_OLTS
+    return normalize_limit(limit)
 
 
 def load_license() -> dict:
-    default = {"mode": "trial", "key": "", "activated_at": ""}
+    default = {"mode": "trial", "key": "", "activated_at": "", "max_olts": TRIAL_MAX_OLTS}
     try:
         if _LICENSE_FILE.exists():
             data = json.loads(_LICENSE_FILE.read_text(encoding="utf-8"))
@@ -88,7 +148,6 @@ def save_license(data: dict) -> None:
 
 
 def get_mode() -> str:
-    """trial | full"""
     lic = load_license()
     key = (lic.get("key") or "").strip()
     if key and validate_key(key):
@@ -96,20 +155,35 @@ def get_mode() -> str:
     return "trial"
 
 
-FULL_MAX_OLTS = 5
-TRIAL_MAX_OLTS = 1
-
-
 def max_olts() -> int:
-    return FULL_MAX_OLTS if get_mode() == "full" else TRIAL_MAX_OLTS
+    if get_mode() != "full":
+        return TRIAL_MAX_OLTS
+    lic = load_license()
+    # prefer stored limit, else parse from key
+    stored = lic.get("max_olts")
+    try:
+        if stored is not None and int(stored) > 1:
+            return normalize_limit(int(stored))
+    except Exception:
+        pass
+    key = (lic.get("key") or "").strip()
+    if key:
+        return key_limit(key)
+    return DEFAULT_FULL_MAX
 
 
 def can_add_olt(current_count: int) -> tuple[bool, str]:
     limit = max_olts()
     if current_count >= limit:
         if get_mode() == "trial":
-            return False, "Mode Trial hanya boleh 1 OLT. Aktivasi Full (max 5 OLT) dengan license key."
-        return False, f"Mode Full max {limit} OLT. Batas tercapai."
+            return (
+                False,
+                "Mode Trial max 1 OLT. Aktivasi Full (kelipatan 5 OLT) dengan license key.",
+            )
+        return (
+            False,
+            f"Mode Full max {limit} OLT. Minta key dengan limit lebih tinggi (10/15/20…).",
+        )
     return True, ""
 
 
@@ -119,14 +193,22 @@ def activate(key: str) -> tuple[bool, str]:
     if not validate_key(key, hwid):
         return False, "Key tidak valid untuk HWID mesin ini."
     from datetime import datetime
+
+    limit = key_limit(key)
     save_license({
         "mode": "full",
         "key": key.strip().upper(),
         "activated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "hwid": hwid,
+        "max_olts": limit,
     })
-    return True, f"Aktivasi Full berhasil (max {FULL_MAX_OLTS} OLT)."
+    return True, f"Aktivasi Full berhasil (max {limit} OLT)."
 
 
 def deactivate() -> None:
-    save_license({"mode": "trial", "key": "", "activated_at": ""})
+    save_license({
+        "mode": "trial",
+        "key": "",
+        "activated_at": "",
+        "max_olts": TRIAL_MAX_OLTS,
+    })

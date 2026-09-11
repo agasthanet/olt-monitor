@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.6.2"
+APP_VERSION = "1.6.3"
 
 from flask import (
     Flask,
@@ -397,6 +397,18 @@ def status_badge(status: str) -> str:
 
 
 @app.route("/")
+def _pon_sort_key(key: str):
+    """Urutkan 'board/pon' secara numerik: 2/1, 2/2, ... 2/9, 2/10 (bukan 2/1, 2/10, 2/2)."""
+    try:
+        parts = str(key).replace(" ", "").split("/")
+        b = int(parts[0]) if len(parts) > 0 else 0
+        p = int(parts[1]) if len(parts) > 1 else 0
+        return (b, p)
+    except Exception:
+        return (9999, 9999, str(key))
+
+
+
 def index():
     view = request.args.get("view", "pon")  # pon | odp
     filter_olt = request.args.get("olt") or (config.OLTS[0]["id"] if config.OLTS else None)
@@ -448,7 +460,7 @@ def index():
     )
 
     # Daftar PON & ODP untuk filter
-    all_pons = sorted({f"{o.board}/{o.pon}" for o in onts})
+    all_pons = sorted({f"{o.board}/{o.pon}" for o in onts}, key=_pon_sort_key)
     all_odps = sorted({o.odp or "Belum di-mapping" for o in onts})
 
     last_update = (
@@ -461,7 +473,7 @@ def index():
     return render_template(
         "index.html",
         onts=filtered,
-        by_pon=dict(sorted(by_pon.items())),
+        by_pon=dict(sorted(by_pon.items(), key=lambda kv: _pon_sort_key(kv[0]))),
         by_odp=dict(sorted(by_odp.items())),
         view=view,
         total=total,

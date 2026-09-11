@@ -1,3 +1,13 @@
+## [1.6.4] — 2026-09-11 · **STABLE**
+
+Rilis stabil. Tag: `v1.6.4`.
+
+### Fixed
+- Error dashboard: `_pon_sort_key` salah terdaftar sebagai route `/`
+- Urutan grup PON numerik
+- Uptime health (TimeTicks vs detik)
+- Memory health fallback UCD-SNMP
+
 ## [1.6.3] — 2026-09-11
 
 ### Fixed

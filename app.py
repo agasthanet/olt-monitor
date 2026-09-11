@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.5.6"
+APP_VERSION = "1.5.8"
 
 from flask import (
     Flask,
@@ -777,6 +777,7 @@ def api_health():
     else:
         data = get_cached_health(oid)
     return jsonify({"ok": True, "olt": oid, "health": data})
+
 
 
 

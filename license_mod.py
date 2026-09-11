@@ -1,5 +1,5 @@
 """
-License: Trial (max 1 OLT) vs Full (multi-OLT, key bound to HWID).
+License: Trial (max 1 OLT) vs Full (max 5 OLT, key bound to HWID).
 """
 from __future__ import annotations
 
@@ -96,16 +96,20 @@ def get_mode() -> str:
     return "trial"
 
 
+FULL_MAX_OLTS = 5
+TRIAL_MAX_OLTS = 1
+
+
 def max_olts() -> int:
-    return 999 if get_mode() == "full" else 1
+    return FULL_MAX_OLTS if get_mode() == "full" else TRIAL_MAX_OLTS
 
 
 def can_add_olt(current_count: int) -> tuple[bool, str]:
     limit = max_olts()
     if current_count >= limit:
         if get_mode() == "trial":
-            return False, "Mode Trial hanya boleh 1 OLT. Aktivasi Full dengan license key (HWID)."
-        return False, f"Batas OLT tercapai ({limit})."
+            return False, "Mode Trial hanya boleh 1 OLT. Aktivasi Full (max 5 OLT) dengan license key."
+        return False, f"Mode Full max {limit} OLT. Batas tercapai."
     return True, ""
 
 
@@ -121,7 +125,7 @@ def activate(key: str) -> tuple[bool, str]:
         "activated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "hwid": hwid,
     })
-    return True, "Aktivasi Full berhasil."
+    return True, f"Aktivasi Full berhasil (max {FULL_MAX_OLTS} OLT)."
 
 
 def deactivate() -> None:

@@ -2,7 +2,7 @@
 
 > Panduan instalasi dan penggunaan untuk teknisi / NOC.
 
-**Versi stabil: `1.5.2`**
+**Versi stabil: `1.6.4`**
 
 Aplikasi web untuk memantau ONT/ONU dari OLT (status, Rx/Tx, mapping ODP) secara terpusat.
 

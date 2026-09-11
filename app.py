@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.6.3"
+APP_VERSION = "1.6.4"
 
 from flask import (
     Flask,
@@ -396,9 +396,8 @@ def status_badge(status: str) -> str:
     return "secondary"
 
 
-@app.route("/")
 def _pon_sort_key(key: str):
-    """Urutkan 'board/pon' secara numerik: 2/1, 2/2, ... 2/9, 2/10 (bukan 2/1, 2/10, 2/2)."""
+    """Urutkan 'board/pon' secara numerik: 2/1, 2/2, ... 2/9, 2/10."""
     try:
         parts = str(key).replace(" ", "").split("/")
         b = int(parts[0]) if len(parts) > 0 else 0
@@ -408,7 +407,7 @@ def _pon_sort_key(key: str):
         return (9999, 9999, str(key))
 
 
-
+@app.route("/")
 def index():
     view = request.args.get("view", "pon")  # pon | odp
     filter_olt = request.args.get("olt") or (config.OLTS[0]["id"] if config.OLTS else None)

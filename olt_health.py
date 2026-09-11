@@ -44,12 +44,21 @@ def _to_int(v) -> Optional[int]:
 
 
 def _format_uptime(ticks) -> str:
-    """SNMP TimeTicks = hundredths of a second."""
+    """
+    SNMP TimeTicks biasanya 1/100 detik.
+    Beberapa OLT (HS-EPT dll) mengembalikan detik polos → deteksi heuristik.
+    """
     n = _to_int(ticks)
-    if n is None:
+    if n is None or n < 0:
         return "—"
-    sec = n // 100
-    days, sec = divmod(sec, 86400)
+    sec_as_ticks = n // 100
+    sec_as_sec = n
+    # Jika /100 < 1 hari tapi nilai mentah > 7 hari (sebagai detik) → anggap detik
+    if sec_as_ticks < 86400 and sec_as_sec > 7 * 86400 and sec_as_sec < 5 * 365 * 86400:
+        sec = sec_as_sec
+    else:
+        sec = sec_as_ticks
+    days, sec = divmod(int(sec), 86400)
     hours, sec = divmod(sec, 3600)
     mins, sec = divmod(sec, 60)
     if days:
@@ -148,6 +157,16 @@ def fetch_olt_health_snmp(host: str, community: str, port: int = 161) -> Dict[st
                     if s and u is not None and s > 0:
                         mem_vals.append(int(100 * u / s))
         except Exception as e:
+            pass
+    if not mem_vals:
+        try:
+            total = _to_int(snmp_get(host, community, OID_UCD_MEM_TOTAL, port=port, timeout=3))
+            avail = _to_int(snmp_get(host, community, OID_UCD_MEM_AVAIL, port=port, timeout=3))
+            if total and total > 0 and avail is not None:
+                used_pct = int(100 * (total - avail) / total)
+                if 0 <= used_pct <= 100:
+                    mem_vals.append(used_pct)
+        except Exception:
             pass
     out["mem_percent"] = _avg(mem_vals)
     if mem_vals:

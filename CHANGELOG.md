@@ -1,3 +1,9 @@
+## [1.7.0] — 2026-09-13
+
+### Added
+- Detail ONT (modal): lokasi, serial, Rx/Tx, ODP, downtime, dll.
+- Tombol **Restart ONT** (SNMP SET best-effort / CLI Hioso & HS-Airpo)
+
 ## [1.6.4] — 2026-09-11 · **STABLE**
 
 Rilis stabil. Tag: `v1.6.4`.

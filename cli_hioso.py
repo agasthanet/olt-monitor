@@ -237,3 +237,43 @@ def fetch_hioso_cli(
                 sock.close()
             except Exception:
                 pass
+
+
+
+def restart_onu_hioso_cli(
+    host: str,
+    username: str,
+    password: str,
+    pon: int,
+    onu_id: int,
+    port: int = 23,
+    access_password: str = "",
+    enable_password: str = "",
+) -> tuple:
+    """Best-effort restart ONU via Hioso CLI. Return (ok, msg)."""
+    sock = None
+    try:
+        sock, recv_wait, send = _telnet_session(
+            host, port, username, password,
+            access_password=access_password or "",
+            enable_password=enable_password or "",
+        )
+        cmds = [
+            f"interface epon 0/{pon}",
+            f"onu reboot {onu_id}",
+            f"reboot onu {onu_id}",
+            f"onu {onu_id} reboot",
+            "exit",
+            "exit",
+        ]
+        for c in cmds:
+            _run_cmd(send, recv_wait, c, wait=1.5)
+        return True, f"Perintah reboot dikirim ke Hioso CLI (pon={pon} onu={onu_id})"
+    except Exception as e:
+        return False, f"Hioso CLI restart gagal: {e}"
+    finally:
+        if sock is not None:
+            try:
+                sock.close()
+            except Exception:
+                pass

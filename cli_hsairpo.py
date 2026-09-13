@@ -509,3 +509,29 @@ def fetch_hsairpo_cli(
 
     print(f"[CLI] total {len(uniq)} ONT dari HS-EPT1004 (name dari Desc)")
     return uniq
+
+
+
+def restart_onu_hsairpo_cli(
+    host: str,
+    username: str,
+    password: str,
+    pon: int,
+    onu_id: int,
+    port: int = 23,
+    protocol: str = "telnet",
+) -> tuple:
+    """Best-effort restart ONU HS-EPT / Airpo CLI."""
+    cmds = [
+        f"onu reboot interface epon 0/{pon}:{onu_id}",
+        f"epon reboot onu interface epon0/{pon}:{onu_id}",
+        f"reboot onu {pon} {onu_id}",
+    ]
+    try:
+        if (protocol or "telnet").lower() == "ssh":
+            text = _ssh_run(host, username, password, cmds, port=port or 22)
+        else:
+            text = _telnet_run(host, username, password, cmds, port=port or 23)
+        return True, f"Perintah reboot dikirim ke HS-Airpo CLI (pon={pon} onu={onu_id})"
+    except Exception as e:
+        return False, f"HS-Airpo CLI restart gagal: {e}"

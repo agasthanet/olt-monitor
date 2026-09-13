@@ -244,6 +244,7 @@
         <th>Rx Power</th>
         <th>Tx Power</th>
         <th>Downtime terakhir</th>
+        <th style="width:100px">Aksi</th>
       </tr>
     </thead>
     <tbody>
@@ -294,9 +295,42 @@
             <span class="text-muted">-</span>
           {% endif %}
         </td>
+        <td class="text-nowrap">
+          <button type="button" class="btn btn-sm btn-outline-primary py-0 px-1 btn-ont-detail"
+            title="Detail ONT"
+            data-olt="{{ o.olt_id }}"
+            data-board="{{ o.board }}"
+            data-pon="{{ o.pon }}"
+            data-onu="{{ o.onu_id }}"
+            data-serial="{{ o.serial or '' }}"
+            data-name="{{ o.name or '' }}"
+            data-desc="{{ o.description or '' }}"
+            data-status="{{ o.status or '' }}"
+            data-rx="{{ o.rx_power if o.rx_power is not none else '' }}"
+            data-tx="{{ o.tx_power if o.tx_power is not none else '' }}"
+            data-dist="{{ o.distance if o.distance is not none else '' }}"
+            data-odp="{{ o.odp or '' }}"
+            data-type="{{ o.onu_type or '' }}"
+            data-down="{{ o.last_downtime or '' }}"
+            data-online="{{ o.last_online or '' }}"
+            data-loc="{{ o.board }}/{{ o.pon }}:{{ o.onu_id }}">
+            <i class="bi bi-info-circle"></i>
+          </button>
+          <button type="button" class="btn btn-sm btn-outline-danger py-0 px-1 btn-ont-restart"
+            title="Restart ONT"
+            data-olt="{{ o.olt_id }}"
+            data-board="{{ o.board }}"
+            data-pon="{{ o.pon }}"
+            data-onu="{{ o.onu_id }}"
+            data-serial="{{ o.serial or '' }}"
+            data-name="{{ o.name or '' }}"
+            data-loc="{{ o.board }}/{{ o.pon }}:{{ o.onu_id }}">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </td>
       </tr>
       {% else %}
-      <tr><td colspan="8" class="text-center text-muted py-3">Tidak ada data</td></tr>
+      <tr><td colspan="9" class="text-center text-muted py-3">Tidak ada data</td></tr>
       {% endfor %}
     </tbody>
   </table>
@@ -550,6 +584,137 @@
     });
     input.addEventListener('blur', function(){ saveOdp(cell, input); });
   });
+})();
+</script>
+
+
+<!-- Modal Detail ONT -->
+<div class="modal fade" id="ontDetailModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title"><i class="bi bi-router"></i> Detail ONT</h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body py-2">
+        <table class="table table-sm table-borderless mb-0 small">
+          <tr><th class="text-muted" style="width:40%">Lokasi</th><td id="dLoc">—</td></tr>
+          <tr><th class="text-muted">Nama</th><td id="dName">—</td></tr>
+          <tr><th class="text-muted">Deskripsi</th><td id="dDesc">—</td></tr>
+          <tr><th class="text-muted">Serial / MAC</th><td id="dSerial" class="font-monospace">—</td></tr>
+          <tr><th class="text-muted">Tipe</th><td id="dType">—</td></tr>
+          <tr><th class="text-muted">Status</th><td id="dStatus">—</td></tr>
+          <tr><th class="text-muted">Rx / Tx</th><td id="dRxTx">—</td></tr>
+          <tr><th class="text-muted">Distance</th><td id="dDist">—</td></tr>
+          <tr><th class="text-muted">ODP</th><td id="dOdp">—</td></tr>
+          <tr><th class="text-muted">OLT</th><td id="dOlt">—</td></tr>
+          <tr><th class="text-muted">Last online</th><td id="dOnline">—</td></tr>
+          <tr><th class="text-muted">Downtime</th><td id="dDown">—</td></tr>
+        </table>
+        <div id="dMsg" class="small mt-2"></div>
+      </div>
+      <div class="modal-footer py-2">
+        <button type="button" class="btn btn-sm btn-outline-danger" id="btnRestartFromModal">
+          <i class="bi bi-arrow-clockwise"></i> Restart ONT
+        </button>
+        <button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Tutup</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  var modalEl = document.getElementById('ontDetailModal');
+  var modal = modalEl && window.bootstrap ? new bootstrap.Modal(modalEl) : null;
+  var current = {};
+
+  function fillDetail(d) {
+    current = d;
+    document.getElementById('dLoc').textContent = d.loc || (d.board + '/' + d.pon + ':' + d.onu) || '—';
+    document.getElementById('dName').textContent = d.name || '—';
+    document.getElementById('dDesc').textContent = d.desc || '—';
+    document.getElementById('dSerial').textContent = d.serial || '—';
+    document.getElementById('dType').textContent = d.type || '—';
+    document.getElementById('dStatus').innerHTML = d.status
+      ? ('<span class="badge bg-secondary">' + d.status + '</span>') : '—';
+    var rx = d.rx !== '' && d.rx != null ? d.rx + ' dBm' : '—';
+    var tx = d.tx !== '' && d.tx != null ? d.tx + ' dBm' : '—';
+    document.getElementById('dRxTx').textContent = rx + ' / ' + tx;
+    document.getElementById('dDist').textContent = (d.dist !== '' && d.dist != null) ? (d.dist + ' m') : '—';
+    document.getElementById('dOdp').textContent = d.odp || '—';
+    document.getElementById('dOlt').textContent = d.olt || '—';
+    document.getElementById('dOnline').textContent = d.online || '—';
+    document.getElementById('dDown').textContent = d.down || '—';
+    document.getElementById('dMsg').textContent = '';
+  }
+
+  function fromBtn(btn) {
+    return {
+      olt: btn.getAttribute('data-olt') || '',
+      board: btn.getAttribute('data-board') || '',
+      pon: btn.getAttribute('data-pon') || '',
+      onu: btn.getAttribute('data-onu') || '',
+      serial: btn.getAttribute('data-serial') || '',
+      name: btn.getAttribute('data-name') || '',
+      desc: btn.getAttribute('data-desc') || '',
+      status: btn.getAttribute('data-status') || '',
+      rx: btn.getAttribute('data-rx') || '',
+      tx: btn.getAttribute('data-tx') || '',
+      dist: btn.getAttribute('data-dist') || '',
+      odp: btn.getAttribute('data-odp') || '',
+      type: btn.getAttribute('data-type') || '',
+      down: btn.getAttribute('data-down') || '',
+      online: btn.getAttribute('data-online') || '',
+      loc: btn.getAttribute('data-loc') || ''
+    };
+  }
+
+  document.addEventListener('click', function(e) {
+    var det = e.target.closest('.btn-ont-detail');
+    if (det) {
+      fillDetail(fromBtn(det));
+      if (modal) modal.show();
+      else alert('Detail: ' + (det.getAttribute('data-name') || det.getAttribute('data-serial')));
+      return;
+    }
+    var rst = e.target.closest('.btn-ont-restart');
+    if (rst) {
+      doRestart(fromBtn(rst), rst);
+    }
+  });
+
+  document.getElementById('btnRestartFromModal')?.addEventListener('click', function() {
+    doRestart(current, this);
+  });
+
+  async function doRestart(d, btn) {
+    var label = d.name || d.serial || d.loc || 'ONT';
+    if (!confirm('Restart ONT ini?\n' + label + '\n' + (d.loc || '') + '\n\nONT akan reboot (butuh community WRITE / akses CLI).')) return;
+    var old = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '...'; }
+    var msgEl = document.getElementById('dMsg');
+    try {
+      var r = await fetch('/api/ont/restart', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+          olt: d.olt, board: d.board, pon: d.pon, onu: d.onu, serial: d.serial
+        })
+      });
+      var j = await r.json();
+      var text = j.msg || (j.ok ? 'OK' : 'Gagal');
+      if (j.hint) text += '\n' + j.hint;
+      if (msgEl) {
+        msgEl.className = 'small mt-2 ' + (j.ok ? 'text-success' : 'text-danger');
+        msgEl.textContent = text;
+      }
+      alert((j.ok ? '✓ ' : '✗ ') + text);
+    } catch (err) {
+      alert('Error: ' + err);
+    }
+    if (btn) { btn.disabled = false; btn.innerHTML = old; }
+  }
 })();
 </script>
 

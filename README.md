@@ -195,3 +195,19 @@ Install (Linux: install.sh / Windows: clone + venv)
   → Settings: tambah OLT
   → Dashboard: Refresh
 ```
+
+## Container (MikroTik / Docker)
+
+Tanpa systemd. Pakai skrip khusus:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/agasthanet/olt-monitor/main/install-container.sh -o install-container.sh
+chmod +x install-container.sh
+./install-container.sh
+```
+
+- Start foreground (entrypoint): `/root/olt-monitor/start.sh`
+- Start background: `/root/olt-monitor/run-bg.sh`
+- Stop: `/root/olt-monitor/stop.sh`
+- Mount volume ke `data/` agar config tidak hilang.
+

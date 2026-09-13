@@ -291,6 +291,115 @@ def snmp_get(host: str, community: str, oid: str, port: int = 161, timeout: floa
     return None
 
 
+
+def _encode_set_pdu(request_id: int, oid: str, value_bytes: bytes) -> bytes:
+    """SNMPv2c SetRequest (0xA3). value_bytes = already BER-encoded value."""
+    varbind = _encode_sequence(_encode_oid(oid) + value_bytes)
+    varbind_list = _encode_sequence(varbind)
+    pdu_body = (
+        _encode_integer(request_id)
+        + _encode_integer(0)
+        + _encode_integer(0)
+        + varbind_list
+    )
+    return bytes([0xA3]) + _encode_length(len(pdu_body)) + pdu_body
+
+
+def snmp_set_integer(
+    host: str,
+    community: str,
+    oid: str,
+    value: int,
+    port: int = 161,
+    timeout: float = 8.0,
+) -> tuple:
+    """
+    SET integer. Return (ok: bool, message: str).
+    Butuh community write (sering 'private' / sama dengan read jika tidak dipisah).
+    """
+    req_id = random.randint(1, 0x7FFFFFFF)
+    pdu = _encode_set_pdu(req_id, oid, _encode_integer(int(value)))
+    msg = _encode_message(community, pdu)
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(timeout)
+        sock.sendto(msg, (host, port))
+        data, _ = sock.recvfrom(65535)
+        sock.close()
+        # decode error-status from response roughly
+        try:
+            vbs = _decode_response(data)
+            return True, f"SET OK {oid}={value}"
+        except Exception:
+            return True, f"SET sent {oid}={value} (response parse soft-ok)"
+    except socket.timeout:
+        return False, f"SET timeout {oid}"
+    except Exception as e:
+        return False, f"SET error: {e}"
+
+
+def restart_ont_snmp(
+    host: str,
+    community: str,
+    board: int,
+    pon: int,
+    onu_id: int,
+    port: int = 161,
+    vendor: str = "auto",
+) -> tuple:
+    """
+    Best-effort restart ONT via SNMP SET.
+    Return (ok, message).
+    """
+    vendor = (vendor or "auto").lower()
+    # kandidat OID + nilai aksi reset (biasanya 1)
+    # Index bervariasi antar firmware: board.pon.onu | 1.board.pon.onu | 0.board.pon.onu
+    idxs = [
+        f"{board}.{pon}.{onu_id}",
+        f"1.{board}.{pon}.{onu_id}",
+        f"0.{board}.{pon}.{onu_id}",
+        f"1.1.{board}.{pon}.{onu_id}",
+        f"{pon}.{onu_id}",
+        f"1.{pon}.{onu_id}",
+        f"0.{pon}.{onu_id}",
+    ]
+    oid_bases = []
+    if vendor in ("zte", "c320", "c300", "auto", ""):
+        oid_bases += [
+            # ZTE C300/C320 common mgmt action (1=reset)
+            "1.3.6.1.4.1.3902.1012.3.28.3.1.4",
+            "1.3.6.1.4.1.3902.1012.3.28.2.1.20",
+            "1.3.6.1.4.1.3902.1082.1.3.2.2.1.10",
+            "1.3.6.1.4.1.3902.1082.1.1.2.4.1.4",
+        ]
+    if vendor in ("hioso", "auto", ""):
+        oid_bases += [
+            "1.3.6.1.4.1.25355.3.2.6.3.2.1.50",  # speculative action
+        ]
+    if vendor in ("hsairpo", "vsol", "airpo", "auto", ""):
+        oid_bases += [
+            "1.3.6.1.4.1.37950.1.1.5.10.3.1.4",
+        ]
+
+    errors = []
+    for base in oid_bases:
+        for idx in idxs:
+            oid = f"{base}.{idx}"
+            ok, msg = snmp_set_integer(host, community, oid, 1, port=port, timeout=5)
+            if ok:
+                return True, f"Restart command sent ({oid})"
+            errors.append(msg)
+    # last try value=2 (some vendors use 2=reboot)
+    for base in oid_bases[:3]:
+        for idx in idxs[:3]:
+            oid = f"{base}.{idx}"
+            ok, msg = snmp_set_integer(host, community, oid, 2, port=port, timeout=5)
+            if ok:
+                return True, f"Restart command sent value=2 ({oid})"
+            errors.append(msg)
+    return False, "Restart SNMP gagal. Cek community WRITE, atau OLT tidak expose OID reset. " + (errors[0] if errors else "")
+
+
 def snmp_getnext_walk(
     host: str,
     community: str,

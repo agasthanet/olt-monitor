@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.6.4"
+APP_VERSION = "1.7.0"
 
 from flask import (
     Flask,
@@ -33,8 +33,9 @@ from flask import (
 
 import config
 from odp_mapping import apply_odp_to_onts, load_odp_mapping, save_odp_mapping
-from snmp_zte import OnuInfo, fetch_all_onts
-from cli_hsairpo import fetch_hsairpo_cli
+from snmp_zte import OnuInfo, fetch_all_onts, restart_ont_snmp
+from cli_hsairpo import restart_onu_hsairpo_cli, fetch_hsairpo_cli
+from cli_hioso import restart_onu_hioso_cli
 from cli_hioso import fetch_hioso_cli
 from olt_health import refresh_health, get_cached_health
 from ping_mod import record_ping, get_last, get_history, get_all_last, ping_all_olts
@@ -741,6 +742,130 @@ def settings():
         license_max_olts=max_olts(),
         app_version=APP_VERSION,
     )
+
+
+
+
+
+@app.route("/api/ont/detail")
+def api_ont_detail():
+    """Detail ONT dari cache (serial atau lokasi board/pon/onu + olt)."""
+    serial = (request.args.get("serial") or "").strip().upper()
+    olt_id = (request.args.get("olt") or "").strip()
+    board = request.args.get("board")
+    pon = request.args.get("pon")
+    onu_id = request.args.get("onu")
+    onts = get_onts(force=False, olt_id=olt_id or None, filter_pon=None)
+    found = None
+    if serial:
+        for o in onts:
+            if (o.serial or "").strip().upper() == serial:
+                found = o
+                break
+    if found is None and board is not None and pon is not None and onu_id is not None:
+        try:
+            b, p, n = int(board), int(pon), int(onu_id)
+            for o in onts:
+                if o.board == b and o.pon == p and o.onu_id == n:
+                    if not olt_id or (o.olt_id or "") == olt_id:
+                        found = o
+                        break
+        except Exception:
+            pass
+    if not found:
+        return jsonify({"ok": False, "error": "ONT tidak ditemukan di cache. Refresh OLT dulu."}), 404
+    d = found.to_dict()
+    d["ok"] = True
+    d["rx_class"] = signal_class(found.rx_power)
+    return jsonify(d)
+
+
+@app.route("/api/ont/restart", methods=["POST"])
+def api_ont_restart():
+    """Restart / reboot satu ONT (SNMP SET atau CLI)."""
+    data = request.get_json(silent=True) or request.form or {}
+    olt_id = (data.get("olt") or data.get("olt_id") or "").strip()
+    serial = (data.get("serial") or "").strip().upper()
+    try:
+        board = int(data.get("board"))
+        pon = int(data.get("pon"))
+        onu_id = int(data.get("onu") or data.get("onu_id"))
+    except Exception:
+        board = pon = onu_id = None
+
+    olt = config.get_olt(olt_id) if olt_id else None
+    if not olt and serial:
+        # cari dari cache
+        for o in get_onts(force=False):
+            if (o.serial or "").strip().upper() == serial:
+                olt = config.get_olt(o.olt_id)
+                board, pon, onu_id = o.board, o.pon, o.onu_id
+                olt_id = o.olt_id
+                break
+    if not olt:
+        return jsonify({"ok": False, "msg": "OLT tidak ditemukan"}), 404
+    if board is None or pon is None or onu_id is None:
+        return jsonify({"ok": False, "msg": "board/pon/onu wajib"}), 400
+
+    vendor = (olt.get("vendor") or "auto").lower()
+    host = olt.get("ip") or ""
+    write_comm = olt.get("write_community") or olt.get("community") or config.SNMP_COMMUNITY
+    snmp_port = int(olt.get("port") or config.SNMP_PORT or 161)
+
+    # CLI vendors
+    if vendor in ("hioso-cli", "ha7302", "ha7302csm"):
+        try:
+            from cli_hioso import restart_onu_hioso_cli
+            ok, msg = restart_onu_hioso_cli(
+                host=host,
+                username=olt.get("username") or "root",
+                password=olt.get("password") or "",
+                pon=pon,
+                onu_id=onu_id,
+                port=int(olt.get("cli_port") or 23),
+                access_password=olt.get("access_password") or "",
+                enable_password=olt.get("enable_password") or "",
+            )
+            return jsonify({"ok": ok, "msg": msg, "method": "cli-hioso"})
+        except Exception as e:
+            return jsonify({"ok": False, "msg": str(e), "method": "cli-hioso"})
+
+    if vendor in ("hsairpo-cli", "airpo-cli", "hs-ept", "cli"):
+        try:
+            from cli_hsairpo import restart_onu_hsairpo_cli
+            ok, msg = restart_onu_hsairpo_cli(
+                host=host,
+                username=olt.get("username") or "admin",
+                password=olt.get("password") or "",
+                pon=pon,
+                onu_id=onu_id,
+                port=int(olt.get("cli_port") or 23),
+                protocol=olt.get("protocol") or "telnet",
+            )
+            return jsonify({"ok": ok, "msg": msg, "method": "cli-hsairpo"})
+        except Exception as e:
+            return jsonify({"ok": False, "msg": str(e), "method": "cli-hsairpo"})
+
+    # SNMP path
+    ok, msg = restart_ont_snmp(
+        host=host,
+        community=write_comm,
+        board=board,
+        pon=pon,
+        onu_id=onu_id,
+        port=snmp_port,
+        vendor=vendor,
+    )
+    return jsonify({
+        "ok": ok,
+        "msg": msg,
+        "method": "snmp",
+        "hint": (
+            None if ok else
+            "Pastikan community WRITE benar. Bisa isi write_community di olts.json "
+            "atau samakan community read/write di OLT."
+        ),
+    })
 
 
 

@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.7.0"
+APP_VERSION = "1.7.1"
 
 from flask import (
     Flask,
@@ -652,6 +652,7 @@ def settings():
             name = (request.form.get("name") or oid).strip()
             ip = (request.form.get("ip") or "").strip()
             community = (request.form.get("community") or "public").strip()
+            write_community = (request.form.get("write_community") or "").strip()
             port = int(request.form.get("port") or 161)
             boards_raw = request.form.get("boards") or "1,2"
             boards = [int(x) for x in boards_raw.replace(" ", "").split(",") if x]
@@ -669,6 +670,7 @@ def settings():
                     "name": name,
                     "ip": ip,
                     "community": community,
+                    "write_community": write_community,
                     "port": port,
                     "boards": boards or [1, 2],
                     "firmware": firmware,

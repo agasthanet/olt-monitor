@@ -698,6 +698,25 @@ def convert_tx_power(raw) -> Optional[float]:
 
 
 
+
+def prefer_ont_name(name, description="") -> str:
+    """Pilih label tampilan: prioritaskan description jika name generik ONU-x:y."""
+    n = snmp_text(name)
+    d = snmp_text(description)
+    generic = False
+    if not n:
+        generic = True
+    elif re.match(r"^ONU[-_]?\d+[:./]\d+$", n, re.I):
+        generic = True
+    elif re.match(r"^ONU\d+$", n, re.I):
+        generic = True
+    elif n.upper() in ("NA", "N/A", "NULL", "-"):
+        generic = True
+    if generic and d and d.upper() not in ("NA", "N/A", "NULL", "-"):
+        return d
+    return n or d or ""
+
+
 def snmp_text(val) -> str:
     """Octet string → teks aman untuk nama/desc (bukan serial)."""
     if val is None:
@@ -892,6 +911,7 @@ def _guess_board_pon_v2(if_index: int) -> Tuple[int, int]:
 def _fetch_v1(host: str, community: str, boards: List[int], port: int, filter_pon: str | None = None, olt_id: str = "", olt_name: str = "") -> List[OnuInfo]:
     onts: List[OnuInfo] = []
     name_oid = "1.3.6.1.4.1.3902.1012.3.28.1.1.3"
+    desc_oid = "1.3.6.1.4.1.3902.1012.3.28.1.1.2"  # description / label
     serial_oid = "1.3.6.1.4.1.3902.1012.3.28.1.1.5"
     status_oid = "1.3.6.1.4.1.3902.1012.3.28.2.1.4"
     rx_oid = "1.3.6.1.4.1.3902.1012.3.50.12.1.1.10"
@@ -902,10 +922,12 @@ def _fetch_v1(host: str, community: str, boards: List[int], port: int, filter_po
         return snmp_bulk_walk(host, community, oid, port=port, timeout=timeout, max_repetitions=40)
     with ThreadPoolExecutor(max_workers=2) as ex:
         f_name = ex.submit(_w, name_oid)
+        f_desc = ex.submit(_w, desc_oid)
         f_ser = ex.submit(_w, serial_oid)
         f_st = ex.submit(_w, status_oid)
         f_rx = ex.submit(_w, rx_oid)
         names = f_name.result()
+        descs = f_desc.result()
         serials = f_ser.result()
         statuses = f_st.result()
         rxs = f_rx.result()
@@ -934,12 +956,14 @@ def _fetch_v1(host: str, community: str, boards: List[int], port: int, filter_po
             rx_raw = rxs.get(suffix, rxs.get(suffix + ".1"))
             rx_val = convert_rx_power(rx_raw)
 
+            desc = snmp_text(descs.get(suffix, ""))
             onts.append(
                 OnuInfo(
                     board=board,
                     pon=pon,
                     onu_id=onu_id,
-                    name=snmp_text(name),
+                    name=prefer_ont_name(name, desc),
+                    description=desc,
                     serial=serial,
                     status=STATUS_DISPLAY.get(status, status),
                     status_code=status_code,
@@ -1113,7 +1137,7 @@ def _fetch_v2(host: str, community: str, boards: List[int], port: int, filter_po
             rx_raw = _lookup(rxs, suffix)
             rx_val = convert_rx_power(rx_raw)
             tx_val = convert_tx_power(_lookup(txs, suffix))
-            desc = str(_lookup(descs, suffix) or "").strip('"')
+            desc = snmp_text(_lookup(descs, suffix) or "")
             # Heuristik: sinyal bagus → Online; sinyal hilang + status Online → LOS
             if rx_val is not None and rx_val > -32 and status not in ("Online", "Working"):
                 status = "Online"
@@ -1125,7 +1149,7 @@ def _fetch_v2(host: str, community: str, boards: List[int], port: int, filter_po
                     board=board,
                     pon=pon,
                     onu_id=onu_id,
-                    name=snmp_text(name),
+                    name=prefer_ont_name(name, desc),
                     description=desc,
                     serial=serial,
                     status=STATUS_DISPLAY.get(status, status),

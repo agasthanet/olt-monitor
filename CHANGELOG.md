@@ -1,3 +1,16 @@
+## [1.7.6] — 2026-09-15
+
+### Changed
+- Clear cache hanya untuk **OLT yang sedang difilter**, bukan semua OLT
+
+## [1.7.4] — 2026-09-15
+
+### Fixed
+- Nama ONT ZTE: pakai **description** jika name masih generik `ONU-x:y`
+
+### Added
+- Tombol **Clear cache** di dashboard
+
 ## [1.7.3] — 2026-09-15
 
 ### Fixed

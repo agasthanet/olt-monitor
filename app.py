@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.7.1"
+APP_VERSION = "1.7.3"
 
 from flask import (
     Flask,
@@ -33,7 +33,7 @@ from flask import (
 
 import config
 from odp_mapping import apply_odp_to_onts, load_odp_mapping, save_odp_mapping
-from snmp_zte import OnuInfo, fetch_all_onts, restart_ont_snmp
+from snmp_zte import OnuInfo, fetch_all_onts, restart_ont_snmp, parse_serial
 from cli_hsairpo import restart_onu_hsairpo_cli, fetch_hsairpo_cli
 from cli_hioso import restart_onu_hioso_cli
 from cli_hioso import fetch_hioso_cli
@@ -70,7 +70,7 @@ def _onts_from_jsonable(rows):
             onu_id=int(r.get("onu_id") or 0),
             name=r.get("name") or "",
             description=r.get("description") or "",
-            serial=r.get("serial") or "",
+            serial=parse_serial(r.get("serial") or ""),
             onu_type=r.get("onu_type") or "",
             status=r.get("status") or "Unknown",
             status_code=int(r.get("status_code") if r.get("status_code") is not None else -1),

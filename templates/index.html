@@ -201,8 +201,13 @@
     </span>
     <span>&middot; Menampilkan <strong>{{ onts|length }}</strong> ONT</span>
     <span class="badge bg-secondary">Filter = cache (tanpa walk SNMP)</span>
+    <a href="{{ url_for('clear_cache', olt=filter_olt or '') }}"
+       class="btn btn-sm btn-outline-secondary ms-auto"
+       onclick="return confirm('Hapus cache OLT yang sedang dipilih saja? Setelah itu klik Refresh OLT.');">
+      <i class="bi bi-trash"></i> Clear cache
+    </a>
     <a href="{{ url_for('refresh', olt=filter_olt or '', view=view, pon=filter_pon or '', odp=filter_odp or '', q=search or '') }}"
-       class="btn btn-sm btn-warning ms-auto"
+       class="btn btn-sm btn-warning"
        onclick="this.innerHTML='Refreshing...';">
       <i class="bi bi-cloud-download"></i> Refresh OLT{% if filter_pon %} PON {{ filter_pon }}{% endif %}
     </a>

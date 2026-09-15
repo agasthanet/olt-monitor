@@ -1,3 +1,15 @@
+## [1.7.3] — 2026-09-15
+
+### Fixed
+- Nama ONT rusak setelah perubahan decode SNMP (kembali normal)
+- Serial ZTE: parse konsisten (bytes + hex spasi) → `ZTEGxxxxxxxx` / setara
+- Cache load: serial di-reparse
+
+## [1.7.2] — 2026-09-15
+
+### Fixed
+- Serial ZTE: decode hex spasi (`52 54 45 47...`) jadi format `ZTEGxxxxxxxx`
+
 ## [1.7.0] — 2026-09-13
 
 ### Added

@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.7.3"
+APP_VERSION = "1.7.6"
 
 from flask import (
     Flask,
@@ -33,7 +33,7 @@ from flask import (
 
 import config
 from odp_mapping import apply_odp_to_onts, load_odp_mapping, save_odp_mapping
-from snmp_zte import OnuInfo, fetch_all_onts, restart_ont_snmp, parse_serial
+from snmp_zte import OnuInfo, fetch_all_onts, restart_ont_snmp, parse_serial, prefer_ont_name
 from cli_hsairpo import restart_onu_hsairpo_cli, fetch_hsairpo_cli
 from cli_hioso import restart_onu_hioso_cli
 from cli_hioso import fetch_hioso_cli
@@ -68,7 +68,7 @@ def _onts_from_jsonable(rows):
             board=int(r.get("board") or 0),
             pon=int(r.get("pon") or 0),
             onu_id=int(r.get("onu_id") or 0),
-            name=r.get("name") or "",
+            name=prefer_ont_name(r.get("name") or "", r.get("description") or ""),
             description=r.get("description") or "",
             serial=parse_serial(r.get("serial") or ""),
             onu_type=r.get("onu_type") or "",
@@ -514,6 +514,40 @@ def api_onts():
             "data": [o.to_dict() for o in onts],
         }
     )
+
+
+
+@app.route("/clear-cache", methods=["POST", "GET"])
+def clear_cache():
+    """Hapus cache ONT hanya untuk OLT yang sedang difilter (bukan semua)."""
+    global _cache
+    olt = (request.args.get("olt") or request.form.get("olt") or "").strip()
+    if not olt:
+        # fallback: OLT pertama di list
+        olt = (config.OLTS[0]["id"] if config.OLTS else "") or ""
+
+    if not olt:
+        flash("Tidak ada OLT dipilih untuk clear cache.", "warning")
+        return redirect(url_for("index"))
+
+    before = len(_cache.get("onts") or [])
+    kept = [o for o in (_cache.get("onts") or []) if (o.olt_id or "") != olt]
+    removed = before - len(kept)
+    _cache["onts"] = kept
+    # jangan reset last_update global ke None agar OLT lain tetap valid
+    if not kept:
+        _cache["last_update"] = None
+    try:
+        _save_file_cache()
+        print(f"[CACHE] Clear OLT={olt}: hapus {removed} ONT, sisa {len(kept)}")
+    except Exception as e:
+        print(f"[CACHE] save after clear: {e}")
+
+    flash(
+        f"Cache OLT {olt} dibersihkan ({removed} ONT). Klik Refresh OLT untuk ambil data baru.",
+        "success",
+    )
+    return redirect(url_for("index", olt=olt))
 
 
 @app.route("/refresh")

@@ -177,11 +177,8 @@ def _decode_value(data: bytes, idx: int) -> Tuple[object, int]:
             bits = len(body) * 8
             val -= 1 << bits
         return val, end
-    if tag == 0x04:  # OCTET STRING
-        try:
-            return body.decode("utf-8"), end
-        except Exception:
-            return body.hex(" ").upper(), end
+    if tag == 0x04:  # OCTET STRING — selalu bytes; caller pakai snmp_text / parse_serial
+        return body, end
     if tag == 0x05:  # NULL
         return None, end
     if tag == 0x06:  # OID
@@ -700,32 +697,89 @@ def convert_tx_power(raw) -> Optional[float]:
     return round(raw / 1000.0, 2) if abs(raw) > 50 else None
 
 
+
+def snmp_text(val) -> str:
+    """Octet string → teks aman untuk nama/desc (bukan serial)."""
+    if val is None:
+        return ""
+    if isinstance(val, (bytes, bytearray)):
+        b = bytes(val).split(b"\x00")[0]
+        # trim trailing NULs already done
+        for enc in ("utf-8", "latin-1"):
+            try:
+                s = b.decode(enc)
+                s = "".join(ch for ch in s if ch.isprintable() or ch in " \t").strip().strip('"')
+                return s
+            except Exception:
+                continue
+        return ""
+    s = str(val).strip().strip('"')
+    # jangan tampilkan repr bytes
+    if s.startswith("b'") or s.startswith('b"'):
+        return ""
+    return "".join(ch for ch in s if ch.isprintable() or ch in " \t").strip()
+
+
 def parse_serial(raw) -> str:
+    """
+    Format serial ONT:
+    - ZTE 8 byte: vendor ASCII (ZTEG) + 4 byte hex → ZTEGC69C61EF
+    - MAC 6 byte → AA:BB:CC:DD:EE:FF
+    - String hex "52 54 45 47 ..." → decode dulu
+    """
     if raw is None:
         return ""
-    if isinstance(raw, (bytes, bytearray)):
-        raw_b = bytes(raw)
+
+    def _from_bytes(raw_b: bytes) -> str:
+        if not raw_b:
+            return ""
         # MAC 6 bytes
         if len(raw_b) == 6:
-            return "".join(f"{b:02X}" for b in raw_b)
-        # vendor(4 ascii) + serial
-        try:
-            if len(raw_b) >= 8:
-                s = raw_b.decode("ascii", errors="ignore").strip()
-                if len(s) >= 8 and s.isprintable():
+            return ":".join(f"{b:02X}" for b in raw_b)
+        # ZTE-style: 4 ascii vendor + binary
+        if len(raw_b) >= 8:
+            vendor = raw_b[:4]
+            rest = raw_b[4:]
+            # vendor printable ASCII letters (ZTEG, HWTC, ...)
+            if all(65 <= b <= 90 or 97 <= b <= 122 for b in vendor):
+                try:
+                    v = vendor.decode("ascii")
+                    # sisa tampilkan hex (standar SN ZTE)
+                    return v + rest[:4].hex().upper() if len(rest) >= 4 else v + rest.hex().upper()
+                except Exception:
+                    pass
+            # full printable
+            try:
+                s = raw_b.decode("ascii")
+                if s.isprintable() and len(s) >= 4:
                     return re.sub(r"^\d+,", "", s).strip()
-            # hex encode if binary garbage
-            if any(b < 32 or b > 126 for b in raw_b[:8]):
-                return raw_b.hex().upper()
-            s = raw_b.decode("latin-1", errors="ignore")
-            s = "".join(ch for ch in s if ch.isprintable()).strip()
-            return s
-        except Exception:
-            return raw_b.hex().upper()
+            except Exception:
+                pass
+        # continuous hex uppercase
+        return raw_b.hex().upper()
+
+    if isinstance(raw, (bytes, bytearray)):
+        return _from_bytes(bytes(raw))
+
     s = str(raw).strip().strip('"')
-    s = "".join(ch for ch in s if ch.isprintable()).strip()
-    # strip common prefixes
+    s = "".join(ch for ch in s if ch.isprintable() or ch in " :").strip()
     s = re.sub(r"^\d+,", "", s).strip()
+
+    # "52 54 45 47 C6 9C 61 EF" atau "52:54:45:47:..."
+    if re.fullmatch(r"[0-9A-Fa-f]{2}([ :\-][0-9A-Fa-f]{2}){3,}", s):
+        hexpart = re.sub(r"[^0-9A-Fa-f]", "", s)
+        try:
+            return _from_bytes(bytes.fromhex(hexpart))
+        except Exception:
+            return hexpart.upper()
+
+    # continuous hex 12–16+ chars without separator
+    if re.fullmatch(r"[0-9A-Fa-f]{12,32}", s):
+        try:
+            return _from_bytes(bytes.fromhex(s))
+        except Exception:
+            return s.upper()
+
     return s
 
 
@@ -885,7 +939,7 @@ def _fetch_v1(host: str, community: str, boards: List[int], port: int, filter_po
                     board=board,
                     pon=pon,
                     onu_id=onu_id,
-                    name=str(name).strip('"') if name else "",
+                    name=snmp_text(name),
                     serial=serial,
                     status=STATUS_DISPLAY.get(status, status),
                     status_code=status_code,
@@ -918,7 +972,7 @@ def _fetch_v1(host: str, community: str, boards: List[int], port: int, filter_po
                     rx_val = convert_rx_power(rx_raw)
                     onts.append(OnuInfo(
                         board=board, pon=pon, onu_id=onu_id,
-                        name=str(name).strip('"') if name else "",
+                        name=snmp_text(name),
                         serial=serial,
                         status=STATUS_DISPLAY.get(status, status),
                         status_code=status_code,
@@ -1071,7 +1125,7 @@ def _fetch_v2(host: str, community: str, boards: List[int], port: int, filter_po
                     board=board,
                     pon=pon,
                     onu_id=onu_id,
-                    name=str(name).strip('"') if name else "",
+                    name=snmp_text(name),
                     description=desc,
                     serial=serial,
                     status=STATUS_DISPLAY.get(status, status),
@@ -1454,7 +1508,7 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
 
             serial = _fmt_mac(parse_serial(serials.get(suffix, "")))
             # name dari OID 37; kosong/"NA" → biarkan NA atau serial
-            display = str(name).strip().strip('"') if name is not None else ""
+            display = snmp_text(name)
             display = "".join(ch for ch in display if ch.isprintable()).strip()
             if not display or display.isdigit():
                 display = "NA"
@@ -1548,7 +1602,7 @@ def _fetch_hioso_gpon(host: str, community: str, port: int, olt_id: str = "", ol
                 status = "Online"
             onts.append(OnuInfo(
                 board=board, pon=pon, onu_id=onu_id,
-                name=str(name).strip('"') if name else "",
+                name=snmp_text(name),
                 serial=serial,
                 status=status,
                 status_code=status_code,
@@ -2203,7 +2257,7 @@ def fetch_hsairpo_onts(
                 rx_val = _vsol_parse_power(rxs.get(suffix))
             onts.append(OnuInfo(
                 board=board, pon=pon, onu_id=onu_id,
-                name=str(names.get(suffix) or "").strip('"'),
+                name=snmp_text(names.get(suffix)),
                 serial=parse_serial(macs.get(suffix, "")),
                 status=status, status_code=sc,
                 rx_power=rx_val,

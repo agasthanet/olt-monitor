@@ -1,3 +1,13 @@
+## [1.7.8] — 2026-09-18
+
+### Fixed
+- **Hioso Rx/Tx** tidak kebaca: parse power mendukung bytes/ASCII setelah decode SNMP
+
+## [1.7.7] — 2026-09-18
+
+### Added
+- **Rx power terakhir sebelum down** — ditampilkan saat ONT offline (dari history)
+
 ## [1.7.6] — 2026-09-15
 
 ### Changed

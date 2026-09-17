@@ -226,11 +226,6 @@
        onclick="return confirm('Hapus cache OLT yang sedang dipilih saja? Setelah itu klik Refresh OLT.');">
       <i class="bi bi-trash"></i> Clear cache
     </a>
-    <div id="refreshProgressInline" class="w-100 d-none mb-1 order-first">
-      <div class="progress" style="height:10px">
-        <div id="refreshProgressBar2" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width:0%"></div>
-      </div>
-    </div>
     <button type="button" id="btnRefreshOlt" class="btn btn-sm btn-warning"
             data-olt="{{ filter_olt or '' }}"
             data-pon="{{ filter_pon or '' }}">
@@ -761,8 +756,6 @@
   function $(id){ return document.getElementById(id); }
   var wrap = $('refreshProgressWrap');
   var bar = $('refreshProgressBar');
-  var bar2 = $('refreshProgressBar2');
-  var inline = $('refreshProgressInline');
   var msg = $('refreshProgressMsg');
   var pct = $('refreshProgressPct');
   var btn = $('btnRefreshOlt');
@@ -771,18 +764,16 @@
 
   function showProgress(on) {
     if (wrap) wrap.classList.toggle('d-none', !on);
-    if (inline) inline.classList.toggle('d-none', !on);
   }
   function setProgress(p, text, err) {
     p = Math.max(0, Math.min(100, parseInt(p, 10) || 0));
-    [bar, bar2].forEach(function(el){
-      if (!el) return;
-      el.style.width = p + '%';
-      el.classList.toggle('bg-danger', !!err);
-      el.classList.toggle('bg-success', !err && p >= 100);
-      el.classList.toggle('bg-warning', !err && p < 100);
-      el.classList.toggle('progress-bar-animated', p < 100 && !err);
-    });
+    if (bar) {
+      bar.style.width = p + '%';
+      bar.classList.toggle('bg-danger', !!err);
+      bar.classList.toggle('bg-success', !err && p >= 100);
+      bar.classList.toggle('bg-warning', !err && p < 100);
+      bar.classList.toggle('progress-bar-animated', p < 100 && !err);
+    }
     if (pct) pct.textContent = p + '%';
     if (msg) {
       msg.innerHTML = '<i class="bi bi-arrow-repeat"></i> ' + (text || 'Refresh...');

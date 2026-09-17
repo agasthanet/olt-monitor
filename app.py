@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.7.6"
+APP_VERSION = "1.7.8"
 
 from flask import (
     Flask,
@@ -82,6 +82,7 @@ def _onts_from_jsonable(rows):
             olt_name=r.get("olt_name") or "",
             last_downtime=r.get("last_downtime") or "",
             last_online=r.get("last_online") or "",
+            last_rx_power=r.get("last_rx_power"),
         ))
     return out
 
@@ -139,12 +140,11 @@ def _is_online_status(status: str) -> bool:
 
 def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
     """
-    Track last_online / last_downtime berdasarkan perubahan status antar refresh.
-    Key = serial (fallback location).
+    Track last_online / last_downtime / last_rx_power antar refresh.
+    last_rx_power = Rx terakhir saat ONT masih online (berguna saat offline).
     """
     hist = _load_status_history()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    offline_like = {"offline", "los", "dyinggasp", "authfailed", "poweroff", "unknown"}
 
     for o in onts:
         key = (o.serial or "").strip().upper() or f"{o.olt_id}:{o.board}/{o.pon}:{o.onu_id}"
@@ -155,26 +155,40 @@ def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
 
         last_online = prev.get("last_online") or ""
         last_downtime = prev.get("last_downtime") or ""
+        last_rx = prev.get("last_rx_power")
+        try:
+            if last_rx is not None:
+                last_rx = float(last_rx)
+        except Exception:
+            last_rx = None
 
         if cur_online:
             last_online = now_str
-            # tetap simpan last_downtime lama (riwayat)
+            # simpan Rx saat online sebagai "terakhir diketahui"
+            if o.rx_power is not None:
+                last_rx = float(o.rx_power)
         else:
-            # baru offline (sebelumnya online) → catat downtime sekarang
             if prev_online or not last_downtime:
                 if prev_online:
                     last_downtime = now_str
+                    # Rx terakhir dari history (saat masih online) atau dari prev entry
+                    if last_rx is None and prev.get("last_rx_power") is not None:
+                        try:
+                            last_rx = float(prev.get("last_rx_power"))
+                        except Exception:
+                            pass
                 elif not last_downtime:
-                    # pertama kali lihat offline
                     last_downtime = now_str
 
         o.last_online = last_online
         o.last_downtime = last_downtime if not cur_online else (last_downtime or "")
+        o.last_rx_power = last_rx
 
         hist[key] = {
             "status": o.status,
             "last_online": o.last_online,
             "last_downtime": o.last_downtime,
+            "last_rx_power": last_rx,
             "name": o.name,
             "updated": now_str,
         }
@@ -210,6 +224,11 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
                 o.last_downtime = h.get("last_downtime") or ""
             if not o.last_online:
                 o.last_online = h.get("last_online") or ""
+            if o.last_rx_power is None and h.get("last_rx_power") is not None:
+                try:
+                    o.last_rx_power = float(h.get("last_rx_power"))
+                except Exception:
+                    pass
         if olt_id:
             onts = [o for o in onts if (o.olt_id or "") == olt_id]
         if filter_pon:

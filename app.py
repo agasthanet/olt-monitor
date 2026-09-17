@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.7.8"
+APP_VERSION = "1.8.1"
 
 from flask import (
     Flask,
@@ -567,6 +567,151 @@ def clear_cache():
         "success",
     )
     return redirect(url_for("index", olt=olt))
+
+
+
+# --- Async refresh job (UI tetap bisa dipakai) ---
+_refresh_state = {
+    "running": False,
+    "olt_id": "",
+    "filter_pon": "",
+    "progress": 0,
+    "msg": "",
+    "error": "",
+    "count": 0,
+    "elapsed": 0.0,
+    "started_at": 0.0,
+    "finished_at": 0.0,
+}
+_refresh_lock = threading.Lock()
+
+
+def _set_refresh(**kwargs):
+    with _refresh_lock:
+        _refresh_state.update(kwargs)
+
+
+def _get_refresh() -> dict:
+    with _refresh_lock:
+        return dict(_refresh_state)
+
+
+def _run_refresh_job(olt_id: str, filter_pon: str | None):
+    t0 = time.time()
+    try:
+        _set_refresh(
+            running=True,
+            olt_id=olt_id or "",
+            filter_pon=filter_pon or "",
+            progress=5,
+            msg="Menyiapkan refresh...",
+            error="",
+            count=0,
+            elapsed=0.0,
+            started_at=t0,
+            finished_at=0.0,
+        )
+        _set_refresh(progress=15, msg=f"Koneksi ke OLT {olt_id or 'all'}...")
+        time.sleep(0.05)
+        _set_refresh(progress=35, msg="SNMP/CLI walk berjalan (bisa lama)...")
+        onts = get_onts(force=True, olt_id=olt_id or None, filter_pon=filter_pon or None)
+        _set_refresh(progress=85, msg="Menyimpan cache...")
+        elapsed = time.time() - t0
+        _set_refresh(
+            running=False,
+            progress=100,
+            msg=f"Selesai: {len(onts)} ONT",
+            count=len(onts),
+            elapsed=round(elapsed, 1),
+            finished_at=time.time(),
+            error="",
+        )
+    except Exception as e:
+        _set_refresh(
+            running=False,
+            progress=100,
+            msg="Gagal",
+            error=str(e),
+            elapsed=round(time.time() - t0, 1),
+            finished_at=time.time(),
+        )
+        print(f"[REFRESH] job error: {e}")
+
+
+@app.route("/api/refresh/start", methods=["POST", "GET"])
+def api_refresh_start():
+    """Mulai refresh di background thread — UI tidak diblokir."""
+    data = request.get_json(silent=True) or {}
+    olt_id = (request.args.get("olt") or data.get("olt") or "").strip()
+    filter_pon = (request.args.get("pon") or data.get("pon") or "").strip() or None
+    if not olt_id:
+        olt_id = (config.OLTS[0]["id"] if config.OLTS else "") or ""
+
+    st = _get_refresh()
+    if st.get("running"):
+        return jsonify({
+            "ok": False,
+            "busy": True,
+            "msg": "Refresh masih berjalan",
+            "state": st,
+        })
+
+    t = threading.Thread(
+        target=_run_refresh_job,
+        args=(olt_id, filter_pon),
+        name=f"refresh-{olt_id}",
+        daemon=True,
+    )
+    t.start()
+    return jsonify({
+        "ok": True,
+        "msg": "Refresh dimulai",
+        "olt": olt_id,
+        "pon": filter_pon,
+        "state": _get_refresh(),
+    })
+
+
+@app.route("/api/refresh/status")
+def api_refresh_status():
+    return jsonify({"ok": True, "state": _get_refresh()})
+
+
+@app.route("/api/refresh/all", methods=["POST", "GET"])
+def api_refresh_all_async():
+    """Force refresh semua OLT di background."""
+    st = _get_refresh()
+    if st.get("running"):
+        return jsonify({"ok": False, "busy": True, "msg": "Refresh masih berjalan", "state": st})
+
+    def _job():
+        t0 = time.time()
+        try:
+            _set_refresh(
+                running=True, olt_id="*", filter_pon="", progress=5,
+                msg="Refresh semua OLT...", error="", count=0, started_at=t0, finished_at=0.0,
+            )
+            olts = list(config.OLTS or [])
+            total = max(len(olts), 1)
+            all_count = 0
+            for i, olt in enumerate(olts):
+                oid = str(olt.get("id") or "")
+                pct = 10 + int(80 * (i / total))
+                _set_refresh(progress=pct, msg=f"Refresh {oid} ({i+1}/{total})...")
+                part = get_onts(force=True, olt_id=oid, filter_pon=None)
+                all_count = len(_cache.get("onts") or [])
+            elapsed = time.time() - t0
+            _set_refresh(
+                running=False, progress=100,
+                msg=f"Selesai semua OLT: {all_count} ONT",
+                count=all_count, elapsed=round(elapsed, 1), finished_at=time.time(), error="",
+            )
+        except Exception as e:
+            _set_refresh(running=False, progress=100, msg="Gagal", error=str(e), finished_at=time.time())
+
+    threading.Thread(target=_job, name="refresh-all", daemon=True).start()
+    return jsonify({"ok": True, "msg": "Refresh all dimulai", "state": _get_refresh()})
+
 
 
 @app.route("/refresh")

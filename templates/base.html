@@ -76,11 +76,43 @@
         </ul>
         <div class="d-flex align-items-center text-white-50 small">
           {% if demo %}<span class="badge bg-warning text-dark me-2">DEMO MODE</span>{% endif %}
-          <a href="{{ url_for('refresh_all') }}" class="btn btn-sm btn-outline-light"
-             title="Force refresh semua OLT"
-             onclick="this.innerHTML='<span class=\'spinner-border spinner-border-sm\'></span> Refresh all...';">
+          <button type="button" class="btn btn-sm btn-outline-light" id="btnRefreshAllNav"
+             title="Force refresh semua OLT (background)">
             <i class="bi bi-arrow-clockwise"></i> Refresh All
-          </a>
+          </button>
+          <script>
+          (function(){
+            var b = document.getElementById('btnRefreshAllNav');
+            if (!b) return;
+            b.addEventListener('click', async function(){
+              if (b.disabled) return;
+              b.disabled = true;
+              b.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Starting...';
+              try {
+                var r = await fetch('/api/refresh/all', { method: 'POST' });
+                var j = await r.json();
+                if (window.startOltRefresh) {
+                  // reuse progress UI on dashboard if present
+                }
+                // always go to home with progress? soft alert
+                b.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh All';
+                b.disabled = false;
+                if (j.busy) alert('Refresh masih berjalan');
+                else if (j.ok) {
+                  alert('Refresh semua OLT dimulai di background. Buka dashboard untuk lihat progress.');
+                  if (location.pathname === '/' || location.pathname.endsWith('/')) {
+                    location.reload();
+                  }
+                } else alert(j.msg || 'Gagal');
+              } catch(e) {
+                alert('Error: ' + e);
+                b.disabled = false;
+                b.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Refresh All';
+              }
+            });
+          })();
+          </script>
+</a>
         </div>
       </div>
     </div>

@@ -2,6 +2,26 @@
 {% block title %}Dashboard - OLT MONITOR{% endblock %}
 
 {% block content %}
+
+<!-- Progress refresh — sticky di bawah navbar -->
+<div id="refreshProgressWrap" class="d-none sticky-top mb-3" style="top:0;z-index:1030;">
+  <div class="card border-warning shadow-sm">
+    <div class="card-body py-2 px-3">
+      <div class="d-flex justify-content-between align-items-center small mb-1">
+        <span id="refreshProgressMsg" class="fw-semibold text-dark">
+          <i class="bi bi-arrow-repeat"></i> Refresh OLT...
+        </span>
+        <span id="refreshProgressPct" class="fw-bold">0%</span>
+      </div>
+      <div class="progress" style="height: 12px;">
+        <div id="refreshProgressBar" class="progress-bar progress-bar-striped progress-bar-animated bg-warning"
+             role="progressbar" style="width: 0%" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100"></div>
+      </div>
+      <div class="small text-muted mt-1">Halaman tetap bisa dipakai (filter / pilih OLT) selama refresh.</div>
+    </div>
+  </div>
+</div>
+
 <!-- Stats -->
 <div class="row g-3 mb-4">
   <div class="col-6 col-md-3">
@@ -206,32 +226,33 @@
        onclick="return confirm('Hapus cache OLT yang sedang dipilih saja? Setelah itu klik Refresh OLT.');">
       <i class="bi bi-trash"></i> Clear cache
     </a>
-    <a href="{{ url_for('refresh', olt=filter_olt or '', view=view, pon=filter_pon or '', odp=filter_odp or '', q=search or '') }}"
-       class="btn btn-sm btn-warning"
-       onclick="this.innerHTML='Refreshing...';">
+    <div id="refreshProgressInline" class="w-100 d-none mb-1 order-first">
+      <div class="progress" style="height:10px">
+        <div id="refreshProgressBar2" class="progress-bar progress-bar-striped progress-bar-animated bg-warning" style="width:0%"></div>
+      </div>
+    </div>
+    <button type="button" id="btnRefreshOlt" class="btn btn-sm btn-warning"
+            data-olt="{{ filter_olt or '' }}"
+            data-pon="{{ filter_pon or '' }}">
       <i class="bi bi-cloud-download"></i> Refresh OLT{% if filter_pon %} PON {{ filter_pon }}{% endif %}
-    </a>
+    </button>
   </div>
 </div>
 {% if auto_refresh and auto_refresh > 0 %}
 <script>
   (function(){
     var sec = {{ auto_refresh|int }};
-    var url = {{ url_for('refresh', olt=filter_olt or '', view=view, pon=filter_pon or '', odp=filter_odp or '', q=search or '')|tojson }};
-    // Auto refresh SNMP OLT yang sedang dilihat
-    setTimeout(function(){
-      window.location.href = url;
-    }, sec * 1000);
-    // tampilkan countdown kecil
     var el = document.getElementById('auto-refresh-countdown');
-    if (el) {
-      var left = sec;
-      setInterval(function(){
-        left -= 1;
-        if (left < 0) left = 0;
-        el.textContent = 'Auto refresh: ' + left + 's';
-      }, 1000);
-    }
+    var left = sec;
+    setInterval(function(){
+      left -= 1;
+      if (left < 0) left = 0;
+      if (el) el.textContent = 'Auto refresh: ' + left + 's';
+      if (left === 0) {
+        left = sec;
+        if (window.startOltRefresh) window.startOltRefresh();
+      }
+    }, 1000);
   })();
 </script>
 {% endif %}
@@ -730,6 +751,113 @@
     }
     if (btn) { btn.disabled = false; btn.innerHTML = old; }
   }
+})();
+</script>
+
+
+
+<script>
+(function(){
+  function $(id){ return document.getElementById(id); }
+  var wrap = $('refreshProgressWrap');
+  var bar = $('refreshProgressBar');
+  var bar2 = $('refreshProgressBar2');
+  var inline = $('refreshProgressInline');
+  var msg = $('refreshProgressMsg');
+  var pct = $('refreshProgressPct');
+  var btn = $('btnRefreshOlt');
+  var polling = null;
+  var wasRunning = false;
+
+  function showProgress(on) {
+    if (wrap) wrap.classList.toggle('d-none', !on);
+    if (inline) inline.classList.toggle('d-none', !on);
+  }
+  function setProgress(p, text, err) {
+    p = Math.max(0, Math.min(100, parseInt(p, 10) || 0));
+    [bar, bar2].forEach(function(el){
+      if (!el) return;
+      el.style.width = p + '%';
+      el.classList.toggle('bg-danger', !!err);
+      el.classList.toggle('bg-success', !err && p >= 100);
+      el.classList.toggle('bg-warning', !err && p < 100);
+      el.classList.toggle('progress-bar-animated', p < 100 && !err);
+    });
+    if (pct) pct.textContent = p + '%';
+    if (msg) {
+      msg.innerHTML = '<i class="bi bi-arrow-repeat"></i> ' + (text || 'Refresh...');
+      msg.className = 'fw-semibold ' + (err ? 'text-danger' : (p >= 100 ? 'text-success' : 'text-dark'));
+    }
+  }
+
+  async function pollStatus() {
+    try {
+      var r = await fetch('/api/refresh/status', { cache: 'no-store' });
+      var j = await r.json();
+      var st = (j && j.state) || {};
+      if (st.running) {
+        wasRunning = true;
+        showProgress(true);
+        setProgress(st.progress || 10, st.msg || 'Refresh berjalan...');
+        if (btn) btn.disabled = true;
+      } else if (wasRunning) {
+        wasRunning = false;
+        showProgress(true);
+        if (st.error) {
+          setProgress(100, 'Gagal: ' + st.error, true);
+          if (btn) btn.disabled = false;
+        } else {
+          setProgress(100, (st.msg || 'Selesai') + (st.elapsed ? ' (' + st.elapsed + 's)' : ''), false);
+          if (btn) btn.disabled = false;
+          setTimeout(function(){ location.reload(); }, 700);
+        }
+        if (polling) { clearInterval(polling); polling = null; }
+      }
+    } catch (e) {
+      console.warn('refresh status', e);
+    }
+  }
+
+  window.startOltRefresh = async function(olt, pon) {
+    olt = olt || (btn && btn.getAttribute('data-olt')) || '';
+    pon = pon || (btn && btn.getAttribute('data-pon')) || '';
+    showProgress(true);
+    setProgress(5, 'Memulai refresh...');
+    if (btn) btn.disabled = true;
+    try {
+      var url = '/api/refresh/start?olt=' + encodeURIComponent(olt || '');
+      if (pon) url += '&pon=' + encodeURIComponent(pon);
+      var r = await fetch(url, { method: 'POST', headers: {'Accept':'application/json'} });
+      var j = await r.json();
+      if (j.busy) {
+        setProgress((j.state && j.state.progress) || 25, j.msg || 'Refresh masih berjalan...');
+      } else if (!j.ok) {
+        setProgress(100, j.msg || 'Gagal start', true);
+        if (btn) btn.disabled = false;
+        return;
+      } else {
+        setProgress(12, j.msg || 'Refresh dimulai di background');
+      }
+      wasRunning = true;
+      if (polling) clearInterval(polling);
+      polling = setInterval(pollStatus, 800);
+      pollStatus();
+    } catch (e) {
+      setProgress(100, 'Error: ' + e, true);
+      if (btn) btn.disabled = false;
+    }
+  };
+
+  if (btn) {
+    btn.addEventListener('click', function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.startOltRefresh();
+    });
+  }
+
+  // cek status saat load
+  pollStatus();
 })();
 </script>
 

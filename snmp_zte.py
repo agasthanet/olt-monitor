@@ -596,6 +596,7 @@ class OnuInfo:
     olt_name: str = ""
     last_downtime: str = ""   # waktu mulai offline terakhir (ISO / display)
     last_online: str = ""     # waktu terakhir terdeteksi online
+    last_rx_power: Optional[float] = None  # Rx terakhir saat masih online
 
     def to_dict(self) -> dict:
         return {
@@ -616,6 +617,7 @@ class OnuInfo:
             "odp": self.odp,
             "last_downtime": self.last_downtime,
             "last_online": self.last_online,
+            "last_rx_power": self.last_rx_power,
             "location": f"{self.board}/{self.pon}:{self.onu_id}",
         }
 
@@ -648,11 +650,54 @@ STATUS_DISPLAY = {
 }
 
 
+
+def _snmp_number(raw):
+    """Normalisasi nilai SNMP (int/float/bytes/str) ke float, atau None."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        return float(raw)
+    if isinstance(raw, (bytes, bytearray)):
+        b = bytes(raw).strip(b"\x00").strip()
+        if not b:
+            return None
+        # teks ASCII: "-22.50", "2250"
+        try:
+            t = b.decode("ascii", errors="ignore").strip().replace("dBm", "").replace(" ", "")
+            if t and t not in ("N/A", "NA", "--", "null"):
+                return float(t)
+        except Exception:
+            pass
+        # integer big-endian (1–4 byte)
+        try:
+            if 1 <= len(b) <= 4:
+                return float(int.from_bytes(b, "big", signed=True))
+        except Exception:
+            pass
+        return None
+    s = str(raw).strip()
+    # hindari repr bytes
+    if s.startswith("b'") or s.startswith('b"'):
+        return None
+    s = s.replace("dBm", "").replace(" ", "")
+    if s in ("", "N/A", "NA", "--", "null", "None"):
+        return None
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
 def convert_rx_power(raw) -> Optional[float]:
     if raw is None:
         return None
     try:
-        raw = int(float(str(raw).strip()))
+        n = _snmp_number(raw)
+        if n is None:
+            return None
+        raw = int(n)
     except Exception:
         return None
     # N/A / offline markers
@@ -683,7 +728,10 @@ def convert_tx_power(raw) -> Optional[float]:
     if raw is None:
         return None
     try:
-        raw = int(raw)
+        n = _snmp_number(raw)
+        if n is None:
+            return None
+        raw = int(n)
     except Exception:
         return None
     if raw in (65535, 0xFFFF):
@@ -1439,19 +1487,18 @@ HIOSO_STATUS = {
 
 
 def _hioso_parse_power(raw) -> Optional[float]:
-    if raw is None:
+    """Parse Rx/Tx Hioso — support int Gauge, ASCII string, dan bytes."""
+    v = _snmp_number(raw)
+    if v is None:
         return None
     try:
-        s = str(raw).strip().replace("dBm", "").replace(" ", "")
-        if s in ("", "N/A", "NA", "--", "null"):
-            return None
-        v = float(s)
         # integer mentah 0.01 dBm atau 0.1 dBm
         if abs(v) > 100:
             v = v / 100.0
         elif abs(v) > 40 and abs(v) <= 100:
             v = v / 10.0
-        if v < -40 or v > 10:
+        # longgarkan batas (sinyal lemah masih valid)
+        if v < -50 or v > 15:
             return None
         return round(v, 2)
     except Exception:

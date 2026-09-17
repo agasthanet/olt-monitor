@@ -280,6 +280,11 @@
             <span class="badge bg-{{ signal_class(o.rx_power) }} badge-signal">
               {{ '%.2f'|format(o.rx_power) }} dBm
             </span>
+          {% elif o.last_rx_power is not none and o.status not in ['Online', 'Working'] %}
+            <span class="badge bg-secondary badge-signal" title="Rx terakhir sebelum offline">
+              {{ '%.2f'|format(o.last_rx_power) }} dBm
+            </span>
+            <div class="small text-muted" style="font-size:0.65rem">last before down</div>
           {% else %}
             <span class="text-muted">-</span>
           {% endif %}
@@ -312,6 +317,7 @@
             data-desc="{{ o.description or '' }}"
             data-status="{{ o.status or '' }}"
             data-rx="{{ o.rx_power if o.rx_power is not none else '' }}"
+            data-lastrx="{{ o.last_rx_power if o.last_rx_power is not none else '' }}"
             data-tx="{{ o.tx_power if o.tx_power is not none else '' }}"
             data-dist="{{ o.distance if o.distance is not none else '' }}"
             data-odp="{{ o.odp or '' }}"
@@ -610,6 +616,7 @@
           <tr><th class="text-muted">Tipe</th><td id="dType">—</td></tr>
           <tr><th class="text-muted">Status</th><td id="dStatus">—</td></tr>
           <tr><th class="text-muted">Rx / Tx</th><td id="dRxTx">—</td></tr>
+          <tr><th class="text-muted">Rx sebelum down</th><td id="dLastRx">—</td></tr>
           <tr><th class="text-muted">Distance</th><td id="dDist">—</td></tr>
           <tr><th class="text-muted">ODP</th><td id="dOdp">—</td></tr>
           <tr><th class="text-muted">OLT</th><td id="dOlt">—</td></tr>
@@ -646,6 +653,8 @@
     var rx = d.rx !== '' && d.rx != null ? d.rx + ' dBm' : '—';
     var tx = d.tx !== '' && d.tx != null ? d.tx + ' dBm' : '—';
     document.getElementById('dRxTx').textContent = rx + ' / ' + tx;
+    var lr = document.getElementById('dLastRx');
+    if (lr) lr.textContent = (d.lastrx !== '' && d.lastrx != null) ? (d.lastrx + ' dBm') : '—';
     document.getElementById('dDist').textContent = (d.dist !== '' && d.dist != null) ? (d.dist + ' m') : '—';
     document.getElementById('dOdp').textContent = d.odp || '—';
     document.getElementById('dOlt').textContent = d.olt || '—';
@@ -665,6 +674,7 @@
       desc: btn.getAttribute('data-desc') || '',
       status: btn.getAttribute('data-status') || '',
       rx: btn.getAttribute('data-rx') || '',
+      lastrx: btn.getAttribute('data-lastrx') || '',
       tx: btn.getAttribute('data-tx') || '',
       dist: btn.getAttribute('data-dist') || '',
       odp: btn.getAttribute('data-odp') || '',

@@ -1,3 +1,9 @@
+## [1.8.0] — 2026-09-18
+
+### Added
+- Refresh **non-blocking** (background) + **progress bar**
+- UI tetap bisa dipakai saat refresh berjalan
+
 ## [1.7.8] — 2026-09-18
 
 ### Fixed

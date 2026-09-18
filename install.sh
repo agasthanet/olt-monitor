@@ -14,6 +14,8 @@ if ! command -v python3 >/dev/null; then
   echo "Menginstall python3..."
   sudo apt-get update -y
   sudo apt-get install -y python3 python3-pip python3-venv git
+  PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)
+  [ -n "$PYVER" ] && sudo apt-get install -y "python${PYVER}-venv" || true
 fi
 if ! command -v git >/dev/null; then
   sudo apt-get update -y
@@ -42,7 +44,16 @@ else
 fi
 
 cd "$DIR"
-python3 -m venv venv
+if [ -d venv ] && [ ! -x venv/bin/python ]; then rm -rf venv; fi
+if ! python3 -m venv venv; then
+  echo "venv gagal — install python3-venv..."
+  sudo apt-get update -y
+  sudo apt-get install -y python3-venv python3-pip || true
+  PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)
+  [ -n "$PYVER" ] && sudo apt-get install -y "python${PYVER}-venv" || true
+  rm -rf venv
+  python3 -m venv venv || { echo "ERROR: python3 -m venv gagal. apt install python3-venv"; exit 1; }
+fi
 # shellcheck disable=SC1091
 source venv/bin/activate
 pip install -U pip

@@ -1,3 +1,10 @@
+## [1.9.0] — 2026-09-18
+
+### Added
+- **Login** (session): default `admin` / `admin`
+- Logout di navbar
+- Ganti password di Settings
+
 ## [1.8.0] — 2026-09-18
 
 ### Added

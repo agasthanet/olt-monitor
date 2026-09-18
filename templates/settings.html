@@ -156,6 +156,32 @@
       </div>
     </div>
 
+    
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-white">
+        <h6 class="mb-0"><i class="bi bi-shield-lock"></i> Ganti Password</h6>
+      </div>
+      <div class="card-body">
+        <p class="small text-muted">User: <strong>{{ username or session.get('username') or 'admin' }}</strong></p>
+        <form method="post">
+          <input type="hidden" name="action" value="change_password">
+          <div class="mb-2">
+            <label class="form-label small">Password lama</label>
+            <input type="password" name="current_password" class="form-control form-control-sm" required autocomplete="current-password">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Password baru</label>
+            <input type="password" name="new_password" class="form-control form-control-sm" required minlength="4" autocomplete="new-password">
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Ulangi password baru</label>
+            <input type="password" name="new_password2" class="form-control form-control-sm" required minlength="4" autocomplete="new-password">
+          </div>
+          <button type="submit" class="btn btn-sm btn-outline-primary">Simpan password</button>
+        </form>
+      </div>
+    </div>
+
     <div class="card shadow-sm mt-3">
       <div class="card-header bg-white">
         <strong><i class="bi bi-info-circle"></i> Versi &amp; Update</strong>

@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.8.2"
+APP_VERSION = "1.9.0"
 
 from flask import (
     Flask,
@@ -28,8 +28,12 @@ from flask import (
     render_template,
     request,
     send_file,
+    session,
     url_for,
 )
+from functools import wraps
+from werkzeug.security import check_password_hash, generate_password_hash
+
 
 import config
 from odp_mapping import apply_odp_to_onts, load_odp_mapping, save_odp_mapping
@@ -51,6 +55,107 @@ from license_mod import (
 
 app = Flask(__name__)
 app.secret_key = "zte-c320-monitor-secret-change-me"
+
+# ===== Auth (login session) =====
+_AUTH_FILE = _Path(__file__).resolve().parent / "data" / "auth.json"
+
+
+def _default_auth() -> dict:
+    # password default: admin
+    return {
+        "users": [
+            {
+                "username": "admin",
+                "password_hash": generate_password_hash("admin"),
+            }
+        ]
+    }
+
+
+def load_auth() -> dict:
+    try:
+        if _AUTH_FILE.exists():
+            data = json.loads(_AUTH_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("users"):
+                return data
+    except Exception as e:
+        print(f"[AUTH] load error: {e}")
+    data = _default_auth()
+    save_auth(data)
+    return data
+
+
+def save_auth(data: dict) -> None:
+    _AUTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _AUTH_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def verify_user(username: str, password: str) -> bool:
+    username = (username or "").strip()
+    auth = load_auth()
+    for u in auth.get("users") or []:
+        if (u.get("username") or "") == username:
+            ph = u.get("password_hash") or ""
+            try:
+                return check_password_hash(ph, password or "")
+            except Exception:
+                return False
+    return False
+
+
+def login_required(fn):
+    @wraps(fn)
+    def wrapper(*args, **kwargs):
+        if session.get("logged_in"):
+            return fn(*args, **kwargs)
+        # API → JSON 401
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "login required"}), 401
+        session["next"] = request.full_path if request.full_path else "/"
+        return redirect(url_for("login"))
+    return wrapper
+
+
+@app.before_request
+def _require_login():
+    # endpoint bebas login
+    open_eps = {"login", "static"}
+    if request.endpoint in open_eps or (request.endpoint or "").startswith("static"):
+        return None
+    if session.get("logged_in"):
+        return None
+    if request.path.startswith("/api/"):
+        return jsonify({"ok": False, "error": "login required"}), 401
+    return redirect(url_for("login", next=request.path))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if session.get("logged_in"):
+        return redirect(url_for("index"))
+    if request.method == "POST":
+        user = (request.form.get("username") or "").strip()
+        pw = request.form.get("password") or ""
+        if verify_user(user, pw):
+            session["logged_in"] = True
+            session["username"] = user
+            session.permanent = True
+            flash(f"Selamat datang, {user}", "success")
+            nxt = request.args.get("next") or session.pop("next", None) or url_for("index")
+            if not str(nxt).startswith("/"):
+                nxt = url_for("index")
+            return redirect(nxt)
+        flash("Username atau password salah", "danger")
+    return render_template("login.html")
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    flash("Anda sudah logout", "info")
+    return redirect(url_for("login"))
+
+
 
 # Cache memory + file (supaya filter tetap cepat walau Flask reload)
 _cache = {"onts": [], "last_update": None, "firmware": None}
@@ -914,6 +1019,35 @@ def settings():
             flash("Mode kembali ke Trial (max 1 OLT). Full max 5 OLT.", "warning")
             return redirect(url_for("settings"))
 
+
+        if action == "change_password":
+            cur = request.form.get("current_password") or ""
+            new1 = request.form.get("new_password") or ""
+            new2 = request.form.get("new_password2") or ""
+            user = session.get("username") or "admin"
+            if not verify_user(user, cur):
+                flash("Password lama salah", "danger")
+            elif len(new1) < 4:
+                flash("Password baru minimal 4 karakter", "danger")
+            elif new1 != new2:
+                flash("Konfirmasi password tidak sama", "danger")
+            else:
+                auth = load_auth()
+                found = False
+                for u in auth.get("users") or []:
+                    if u.get("username") == user:
+                        u["password_hash"] = generate_password_hash(new1)
+                        found = True
+                        break
+                if not found:
+                    auth.setdefault("users", []).append({
+                        "username": user,
+                        "password_hash": generate_password_hash(new1),
+                    })
+                save_auth(auth)
+                flash("Password berhasil diubah", "success")
+            return redirect(url_for("settings"))
+
         if action == "delete_olt":
             oid = (request.form.get("id") or "").strip()
             olts = [o for o in olts if o.get("id") != oid]
@@ -941,6 +1075,7 @@ def settings():
         license_info=load_license(),
         license_max_olts=max_olts(),
         app_version=APP_VERSION,
+        username=session.get("username") or "",
     )
 
 

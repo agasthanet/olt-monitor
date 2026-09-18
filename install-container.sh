@@ -19,12 +19,17 @@ export DEBIAN_FRONTEND=noninteractive
 
 # --- paket dasar ---
 if command -v apt-get >/dev/null 2>&1; then
+  export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
+  # python3-venv WAJIB (ensurepip). Juga coba paket versi spesifik mis. python3.10-venv
+  PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "")
   apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv git curl ca-certificates \
     iputils-ping net-tools procps \
     || true
-  # snmp client opsional (troubleshooting)
+  if [ -n "$PYVER" ]; then
+    apt-get install -y --no-install-recommends "python${PYVER}-venv" || true
+  fi
   apt-get install -y --no-install-recommends snmp || true
 fi
 
@@ -63,7 +68,28 @@ cd "$DIR"
 mkdir -p data
 
 # --- venv + pip ---
-python3 -m venv venv
+if [ -d venv ] && [ ! -x venv/bin/python ]; then
+  echo ">> venv rusak / tidak lengkap — dihapus"
+  rm -rf venv
+fi
+
+if ! python3 -m venv venv 2>/tmp/olt-venv-err.txt; then
+  echo ">> venv gagal. Coba install python3-venv..."
+  if command -v apt-get >/dev/null 2>&1; then
+    PYVER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || true)
+    apt-get update -y
+    apt-get install -y python3-venv python3-pip || true
+    [ -n "$PYVER" ] && apt-get install -y "python${PYVER}-venv" || true
+  fi
+  rm -rf venv
+  if ! python3 -m venv venv; then
+    echo "ERROR: gagal buat venv. Install manual:"
+    echo "  apt-get install -y python3-venv python3.10-venv"
+    echo "  (sesuaikan versi: python3 --version)"
+    cat /tmp/olt-venv-err.txt 2>/dev/null || true
+    exit 1
+  fi
+fi
 # shellcheck disable=SC1091
 source venv/bin/activate
 pip install -U pip wheel

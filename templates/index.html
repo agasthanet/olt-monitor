@@ -221,8 +221,13 @@
     </span>
     <span>&middot; Menampilkan <strong>{{ onts|length }}</strong> ONT</span>
     <span class="badge bg-secondary">Filter = cache (tanpa walk SNMP)</span>
+    <a href="{{ url_for('export_onts', olt=filter_olt or '', pon=filter_pon or '', odp=filter_odp or '', q=search or '') }}"
+       class="btn btn-sm btn-outline-success ms-auto"
+       title="Export data ONT yang sedang ditampilkan ke CSV">
+      <i class="bi bi-filetype-csv"></i> Export CSV
+    </a>
     <a href="{{ url_for('clear_cache', olt=filter_olt or '') }}"
-       class="btn btn-sm btn-outline-secondary ms-auto"
+       class="btn btn-sm btn-outline-secondary"
        onclick="return confirm('Hapus cache OLT yang sedang dipilih saja? Setelah itu klik Refresh OLT.');">
       <i class="bi bi-trash"></i> Clear cache
     </a>

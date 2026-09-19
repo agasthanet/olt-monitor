@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.9.0"
+APP_VERSION = "1.9.1"
 
 from flask import (
     Flask,
@@ -913,6 +913,75 @@ def odp_page():
         mapped_count=mapped_count,
         total_ont=len(onts),
     )
+
+
+
+@app.route("/export/onts")
+def export_onts():
+    """Export ONT (filter aktif: olt/pon/odp/q) ke CSV."""
+    filter_olt = request.args.get("olt") or None
+    filter_pon = request.args.get("pon") or None
+    filter_odp = request.args.get("odp") or None
+    search = (request.args.get("q") or "").strip().lower()
+
+    onts = get_onts(force=False, olt_id=filter_olt, filter_pon=None)
+    if filter_pon:
+        try:
+            b, p = filter_pon.split("/")
+            onts = [o for o in onts if o.board == int(b) and o.pon == int(p)]
+        except Exception:
+            pass
+    if filter_odp:
+        onts = [o for o in onts if (o.odp or "") == filter_odp]
+    if search:
+        onts = [
+            o for o in onts
+            if search in (o.name or "").lower()
+            or search in (o.serial or "").lower()
+            or search in (o.odp or "").lower()
+            or search in (o.description or "").lower()
+        ]
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "OLT_ID", "OLT_Name", "Lokasi", "Board", "PON", "ONU_ID",
+        "Nama", "Description", "Serial", "ODP", "Status",
+        "Rx_dBm", "Tx_dBm", "Last_Rx_before_down", "Distance_m",
+        "Downtime_terakhir", "Last_online",
+    ])
+    for o in onts:
+        writer.writerow([
+            o.olt_id or "",
+            o.olt_name or "",
+            f"{o.board}/{o.pon}:{o.onu_id}",
+            o.board,
+            o.pon,
+            o.onu_id,
+            o.name or "",
+            o.description or "",
+            o.serial or "",
+            o.odp or "",
+            o.status or "",
+            "" if o.rx_power is None else f"{o.rx_power:.2f}",
+            "" if o.tx_power is None else f"{o.tx_power:.2f}",
+            "" if getattr(o, "last_rx_power", None) is None else f"{o.last_rx_power:.2f}",
+            "" if o.distance is None else o.distance,
+            o.last_downtime or "",
+            o.last_online or "",
+        ])
+
+    output.seek(0)
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    oid = filter_olt or "all"
+    fname = f"ont_export_{oid}_{stamp}.csv"
+    return send_file(
+        io.BytesIO(output.getvalue().encode("utf-8-sig")),
+        mimetype="text/csv",
+        as_attachment=True,
+        download_name=fname,
+    )
+
 
 
 @app.route("/download-mapping")

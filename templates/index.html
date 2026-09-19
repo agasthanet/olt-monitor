@@ -620,30 +620,49 @@
 </script>
 
 
+
 <!-- Modal Detail ONT -->
-<div class="modal fade" id="ontDetailModal" tabindex="-1">
-  <div class="modal-dialog modal-dialog-centered">
+<div class="modal fade" id="ontDetailModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
     <div class="modal-content">
       <div class="modal-header py-2">
         <h6 class="modal-title"><i class="bi bi-router"></i> Detail ONT</h6>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
-      <div class="modal-body py-2">
-        <table class="table table-sm table-borderless mb-0 small">
-          <tr><th class="text-muted" style="width:40%">Lokasi</th><td id="dLoc">—</td></tr>
-          <tr><th class="text-muted">Nama</th><td id="dName">—</td></tr>
-          <tr><th class="text-muted">Deskripsi</th><td id="dDesc">—</td></tr>
-          <tr><th class="text-muted">Serial / MAC</th><td id="dSerial" class="font-monospace">—</td></tr>
-          <tr><th class="text-muted">Tipe</th><td id="dType">—</td></tr>
-          <tr><th class="text-muted">Status</th><td id="dStatus">—</td></tr>
-          <tr><th class="text-muted">Rx / Tx</th><td id="dRxTx">—</td></tr>
-          <tr><th class="text-muted">Rx sebelum down</th><td id="dLastRx">—</td></tr>
-          <tr><th class="text-muted">Distance</th><td id="dDist">—</td></tr>
-          <tr><th class="text-muted">ODP</th><td id="dOdp">—</td></tr>
-          <tr><th class="text-muted">OLT</th><td id="dOlt">—</td></tr>
-          <tr><th class="text-muted">Last online</th><td id="dOnline">—</td></tr>
-          <tr><th class="text-muted">Downtime</th><td id="dDown">—</td></tr>
-        </table>
+      <div class="modal-body">
+        <div class="row g-2 mb-3">
+          <div class="col-md-4">
+            <div class="text-muted small">Nama</div>
+            <div class="fw-semibold" id="dName">—</div>
+          </div>
+          <div class="col-md-4">
+            <div class="text-muted small">Status</div>
+            <div id="dStatus">—</div>
+          </div>
+          <div class="col-md-4">
+            <div class="text-muted small">Rx Power</div>
+            <div class="fw-semibold" id="dRx">—</div>
+          </div>
+        </div>
+        <div class="text-muted small mb-1">Grafik Rx Power (riwayat refresh)</div>
+        <div style="height:180px;position:relative">
+          <canvas id="ontRxChart"></canvas>
+        </div>
+        <div class="text-muted small mt-3 mb-1">10 log down terakhir</div>
+        <div class="table-responsive" style="max-height:200px;overflow:auto">
+          <table class="table table-sm table-striped mb-0">
+            <thead class="table-light sticky-top">
+              <tr>
+                <th>Waktu</th>
+                <th>Event</th>
+                <th>Rx terakhir</th>
+              </tr>
+            </thead>
+            <tbody id="dDownLogs">
+              <tr><td colspan="3" class="text-muted text-center">Belum ada log</td></tr>
+            </tbody>
+          </table>
+        </div>
         <div id="dMsg" class="small mt-2"></div>
       </div>
       <div class="modal-footer py-2">
@@ -658,65 +677,159 @@
 
 <script>
 (function(){
-  var modalEl = document.getElementById('ontDetailModal');
-  var modal = modalEl && window.bootstrap ? new bootstrap.Modal(modalEl) : null;
   var current = {};
+  var rxChart = null;
 
-  function fillDetail(d) {
-    current = d;
-    document.getElementById('dLoc').textContent = d.loc || (d.board + '/' + d.pon + ':' + d.onu) || '—';
-    document.getElementById('dName').textContent = d.name || '—';
-    document.getElementById('dDesc').textContent = d.desc || '—';
-    document.getElementById('dSerial').textContent = d.serial || '—';
-    document.getElementById('dType').textContent = d.type || '—';
-    document.getElementById('dStatus').innerHTML = d.status
-      ? ('<span class="badge bg-secondary">' + d.status + '</span>') : '—';
-    var rx = d.rx !== '' && d.rx != null ? d.rx + ' dBm' : '—';
-    var tx = d.tx !== '' && d.tx != null ? d.tx + ' dBm' : '—';
-    document.getElementById('dRxTx').textContent = rx + ' / ' + tx;
-    var lr = document.getElementById('dLastRx');
-    if (lr) lr.textContent = (d.lastrx !== '' && d.lastrx != null) ? (d.lastrx + ' dBm') : '—';
-    document.getElementById('dDist').textContent = (d.dist !== '' && d.dist != null) ? (d.dist + ' m') : '—';
-    document.getElementById('dOdp').textContent = d.odp || '—';
-    document.getElementById('dOlt').textContent = d.olt || '—';
-    document.getElementById('dOnline').textContent = d.online || '—';
-    document.getElementById('dDown').textContent = d.down || '—';
-    document.getElementById('dMsg').textContent = '';
+  function getModal() {
+    var el = document.getElementById('ontDetailModal');
+    if (!el) return null;
+    if (window.bootstrap && bootstrap.Modal) {
+      return bootstrap.Modal.getOrCreateInstance(el);
+    }
+    return null;
   }
 
-  function fromBtn(btn) {
-    return {
+  function showModal() {
+    var m = getModal();
+    if (m) { m.show(); return; }
+    var el = document.getElementById('ontDetailModal');
+    if (el) {
+      el.classList.add('show');
+      el.style.display = 'block';
+      el.removeAttribute('aria-hidden');
+      document.body.classList.add('modal-open');
+    }
+  }
+
+  function badgeStatus(st) {
+    var s = (st || '').toLowerCase();
+    var cls = 'secondary';
+    if (s === 'online' || s === 'working') cls = 'success';
+    else if (s === 'offline' || s === 'los' || s === 'poweroff') cls = 'danger';
+    else if (s) cls = 'warning';
+    return '<span class="badge bg-' + cls + '">' + (st || '—') + '</span>';
+  }
+
+  function renderRxChart(history) {
+    var canvas = document.getElementById('ontRxChart');
+    if (!canvas || typeof Chart === 'undefined') return;
+    var labels = [];
+    var data = [];
+    (history || []).forEach(function(p) {
+      labels.push(p.t || (p.ts ? new Date(p.ts * 1000).toLocaleTimeString() : ''));
+      data.push(p.rx);
+    });
+    if (rxChart) { rxChart.destroy(); rxChart = null; }
+    if (!data.length) {
+      // empty chart
+      rxChart = new Chart(canvas.getContext('2d'), {
+        type: 'line',
+        data: { labels: ['—'], datasets: [{ label: 'Rx dBm', data: [null], borderColor: '#0d6efd', tension: 0.2 }] },
+        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+      });
+      return;
+    }
+    rxChart = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Rx (dBm)',
+          data: data,
+          borderColor: '#0d6efd',
+          backgroundColor: 'rgba(13,110,253,.12)',
+          fill: true,
+          tension: 0.25,
+          pointRadius: 3
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: { title: { display: true, text: 'dBm' } }
+        },
+        plugins: { legend: { display: false } }
+      }
+    });
+  }
+
+  function renderDownLogs(logs) {
+    var tb = document.getElementById('dDownLogs');
+    if (!tb) return;
+    if (!logs || !logs.length) {
+      tb.innerHTML = '<tr><td colspan="3" class="text-muted text-center">Belum ada log down</td></tr>';
+      return;
+    }
+    tb.innerHTML = logs.map(function(L) {
+      var rx = (L.last_rx != null && L.last_rx !== '') ? (Number(L.last_rx).toFixed(2) + ' dBm') : '—';
+      return '<tr><td class="small">' + (L.t || '—') + '</td><td><span class="badge bg-danger">' +
+        (L.event || 'DOWN') + '</span> <span class="text-muted small">' +
+        (L.from || '') + ' → ' + (L.to || '') + '</span></td><td class="small">' + rx + '</td></tr>';
+    }).join('');
+  }
+
+  async function openDetail(btn) {
+    var d = {
       olt: btn.getAttribute('data-olt') || '',
       board: btn.getAttribute('data-board') || '',
       pon: btn.getAttribute('data-pon') || '',
       onu: btn.getAttribute('data-onu') || '',
       serial: btn.getAttribute('data-serial') || '',
       name: btn.getAttribute('data-name') || '',
-      desc: btn.getAttribute('data-desc') || '',
       status: btn.getAttribute('data-status') || '',
       rx: btn.getAttribute('data-rx') || '',
-      lastrx: btn.getAttribute('data-lastrx') || '',
-      tx: btn.getAttribute('data-tx') || '',
-      dist: btn.getAttribute('data-dist') || '',
-      odp: btn.getAttribute('data-odp') || '',
-      type: btn.getAttribute('data-type') || '',
-      down: btn.getAttribute('data-down') || '',
-      online: btn.getAttribute('data-online') || '',
-      loc: btn.getAttribute('data-loc') || ''
+      lastrx: btn.getAttribute('data-lastrx') || ''
     };
+    current = d;
+
+    // tampilkan dulu dari data atribut
+    document.getElementById('dName').textContent = d.name || '—';
+    document.getElementById('dStatus').innerHTML = badgeStatus(d.status);
+    var rxShow = d.rx || d.lastrx;
+    document.getElementById('dRx').textContent = rxShow !== '' && rxShow != null ? (rxShow + ' dBm') : '—';
+    renderRxChart([]);
+    renderDownLogs([]);
+    showModal();
+
+    // ambil history dari API
+    try {
+      var qs = new URLSearchParams({
+        olt: d.olt, board: d.board, pon: d.pon, onu: d.onu, serial: d.serial
+      });
+      var r = await fetch('/api/ont/detail?' + qs.toString(), { cache: 'no-store' });
+      var j = await r.json();
+      if (!j.ok) return;
+      current = Object.assign(current, j);
+      document.getElementById('dName').textContent = j.name || d.name || '—';
+      document.getElementById('dStatus').innerHTML = badgeStatus(j.status || d.status);
+      var rx = j.rx_power != null ? j.rx_power : j.last_rx_power;
+      document.getElementById('dRx').textContent = rx != null ? (Number(rx).toFixed(2) + ' dBm') : '—';
+      renderRxChart(j.rx_history || []);
+      renderDownLogs(j.down_logs || []);
+    } catch (e) {
+      console.warn('detail api', e);
+    }
   }
 
   document.addEventListener('click', function(e) {
     var det = e.target.closest('.btn-ont-detail');
     if (det) {
-      fillDetail(fromBtn(det));
-      if (modal) modal.show();
-      else alert('Detail: ' + (det.getAttribute('data-name') || det.getAttribute('data-serial')));
+      e.preventDefault();
+      openDetail(det);
       return;
     }
     var rst = e.target.closest('.btn-ont-restart');
     if (rst) {
-      doRestart(fromBtn(rst), rst);
+      doRestart({
+        olt: rst.getAttribute('data-olt') || '',
+        board: rst.getAttribute('data-board') || '',
+        pon: rst.getAttribute('data-pon') || '',
+        onu: rst.getAttribute('data-onu') || '',
+        serial: rst.getAttribute('data-serial') || '',
+        name: rst.getAttribute('data-name') || '',
+        loc: rst.getAttribute('data-loc') || ''
+      }, rst);
     }
   });
 
@@ -726,7 +839,7 @@
 
   async function doRestart(d, btn) {
     var label = d.name || d.serial || d.loc || 'ONT';
-    if (!confirm('Restart ONT ini?\n' + label + '\n' + (d.loc || '') + '\n\nONT akan reboot (butuh community WRITE / akses CLI).')) return;
+    if (!confirm('Restart ONT ini?\n' + label + '\n\nONT akan reboot (butuh community WRITE / akses CLI).')) return;
     var old = btn ? btn.innerHTML : '';
     if (btn) { btn.disabled = true; btn.innerHTML = '...'; }
     var msgEl = document.getElementById('dMsg');
@@ -753,6 +866,7 @@
   }
 })();
 </script>
+
 
 
 

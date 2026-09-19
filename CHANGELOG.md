@@ -1,3 +1,11 @@
+## [1.9.3] — 2026-09-19
+
+### Added
+- Detail ONT: nama, status, Rx, **grafik Rx**, **10 log down terakhir**
+
+### Fixed
+- Modal detail kadang hanya alert `Detail: NA` (bootstrap belum siap)
+
 ## [1.9.1] — 2026-09-19
 
 ### Added

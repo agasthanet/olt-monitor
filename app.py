@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.9.1"
+APP_VERSION = "1.9.3"
 
 from flask import (
     Flask,
@@ -245,11 +245,11 @@ def _is_online_status(status: str) -> bool:
 
 def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
     """
-    Track last_online / last_downtime / last_rx_power antar refresh.
-    last_rx_power = Rx terakhir saat ONT masih online (berguna saat offline).
+    Track last_online / last_downtime / last_rx_power / rx_history / down_logs.
     """
     hist = _load_status_history()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now_ts = int(time.time())
 
     for o in onts:
         key = (o.serial or "").strip().upper() or f"{o.olt_id}:{o.board}/{o.pon}:{o.onu_id}"
@@ -267,23 +267,37 @@ def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
         except Exception:
             last_rx = None
 
+        rx_history = list(prev.get("rx_history") or [])
+        down_logs = list(prev.get("down_logs") or [])
+
         if cur_online:
             last_online = now_str
-            # simpan Rx saat online sebagai "terakhir diketahui"
             if o.rx_power is not None:
                 last_rx = float(o.rx_power)
+                rx_history.append({"ts": now_ts, "t": now_str, "rx": last_rx})
+                # keep last 48 samples
+                if len(rx_history) > 48:
+                    rx_history = rx_history[-48:]
         else:
-            if prev_online or not last_downtime:
-                if prev_online:
-                    last_downtime = now_str
-                    # Rx terakhir dari history (saat masih online) atau dari prev entry
-                    if last_rx is None and prev.get("last_rx_power") is not None:
-                        try:
-                            last_rx = float(prev.get("last_rx_power"))
-                        except Exception:
-                            pass
-                elif not last_downtime:
-                    last_downtime = now_str
+            if prev_online:
+                last_downtime = now_str
+                if last_rx is None and prev.get("last_rx_power") is not None:
+                    try:
+                        last_rx = float(prev.get("last_rx_power"))
+                    except Exception:
+                        pass
+                down_logs.append({
+                    "ts": now_ts,
+                    "t": now_str,
+                    "event": "DOWN",
+                    "from": prev_status or "Online",
+                    "to": o.status or "Offline",
+                    "last_rx": last_rx,
+                })
+                if len(down_logs) > 10:
+                    down_logs = down_logs[-10:]
+            elif not last_downtime:
+                last_downtime = now_str
 
         o.last_online = last_online
         o.last_downtime = last_downtime if not cur_online else (last_downtime or "")
@@ -294,13 +308,14 @@ def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
             "last_online": o.last_online,
             "last_downtime": o.last_downtime,
             "last_rx_power": last_rx,
+            "rx_history": rx_history,
+            "down_logs": down_logs,
             "name": o.name,
             "updated": now_str,
         }
 
     _save_status_history(hist)
     return onts
-
 
 
 
@@ -918,7 +933,7 @@ def odp_page():
 
 @app.route("/export/onts")
 def export_onts():
-    """Export ONT (filter aktif: olt/pon/odp/q) ke CSV."""
+    """Export ONT sederhana: Nama, Status, Rx Power (filter aktif)."""
     filter_olt = request.args.get("olt") or None
     filter_pon = request.args.get("pon") or None
     filter_odp = request.args.get("odp") or None
@@ -944,31 +959,17 @@ def export_onts():
 
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow([
-        "OLT_ID", "OLT_Name", "Lokasi", "Board", "PON", "ONU_ID",
-        "Nama", "Description", "Serial", "ODP", "Status",
-        "Rx_dBm", "Tx_dBm", "Last_Rx_before_down", "Distance_m",
-        "Downtime_terakhir", "Last_online",
-    ])
+    writer.writerow(["Nama", "Status", "Rx Power (dBm)"])
     for o in onts:
+        # offline: pakai last_rx jika rx kosong
+        rx = o.rx_power
+        if rx is None and getattr(o, "last_rx_power", None) is not None:
+            rx = o.last_rx_power
+        rx_str = "" if rx is None else f"{float(rx):.2f}"
         writer.writerow([
-            o.olt_id or "",
-            o.olt_name or "",
-            f"{o.board}/{o.pon}:{o.onu_id}",
-            o.board,
-            o.pon,
-            o.onu_id,
             o.name or "",
-            o.description or "",
-            o.serial or "",
-            o.odp or "",
             o.status or "",
-            "" if o.rx_power is None else f"{o.rx_power:.2f}",
-            "" if o.tx_power is None else f"{o.tx_power:.2f}",
-            "" if getattr(o, "last_rx_power", None) is None else f"{o.last_rx_power:.2f}",
-            "" if o.distance is None else o.distance,
-            o.last_downtime or "",
-            o.last_online or "",
+            rx_str,
         ])
 
     output.seek(0)
@@ -1153,7 +1154,7 @@ def settings():
 
 @app.route("/api/ont/detail")
 def api_ont_detail():
-    """Detail ONT dari cache (serial atau lokasi board/pon/onu + olt)."""
+    """Detail ONT + rx_history + 10 log down terakhir."""
     serial = (request.args.get("serial") or "").strip().upper()
     olt_id = (request.args.get("olt") or "").strip()
     board = request.args.get("board")
@@ -1178,10 +1179,32 @@ def api_ont_detail():
             pass
     if not found:
         return jsonify({"ok": False, "error": "ONT tidak ditemukan di cache. Refresh OLT dulu."}), 404
-    d = found.to_dict()
-    d["ok"] = True
-    d["rx_class"] = signal_class(found.rx_power)
-    return jsonify(d)
+
+    key = (found.serial or "").strip().upper() or f"{found.olt_id}:{found.board}/{found.pon}:{found.onu_id}"
+    hist = _load_status_history().get(key) or {}
+    rx_history = hist.get("rx_history") or []
+    down_logs = hist.get("down_logs") or []
+    # newest first for logs
+    down_logs = list(reversed(down_logs[-10:]))
+
+    rx = found.rx_power
+    if rx is None and found.last_rx_power is not None:
+        rx = found.last_rx_power
+
+    return jsonify({
+        "ok": True,
+        "name": found.name or "",
+        "status": found.status or "",
+        "rx_power": rx,
+        "last_rx_power": found.last_rx_power,
+        "serial": found.serial or "",
+        "location": f"{found.board}/{found.pon}:{found.onu_id}",
+        "olt_id": found.olt_id or "",
+        "odp": found.odp or "",
+        "rx_history": rx_history,
+        "down_logs": down_logs,
+    })
+
 
 
 @app.route("/api/ont/restart", methods=["POST"])

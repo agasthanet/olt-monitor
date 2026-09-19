@@ -1,3 +1,8 @@
+## [1.9.1] — 2026-09-19
+
+### Added
+- **Export CSV** data ONT (mengikuti filter OLT/PON/ODP/cari)
+
 ## [1.9.0] — 2026-09-18
 
 ### Added

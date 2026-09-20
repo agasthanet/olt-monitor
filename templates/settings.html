@@ -229,9 +229,14 @@
             </thead>
             <tbody>
               {% for o in olts %}
+              {% set o_idx = loop.index0 %}
               <tr>
                 <td><code>{{ o.id }}</code></td>
-                <td>{{ o.name }}</td>
+                <td>{{ o.name }}
+                {% if o_idx >= (license_max_olts or 1) %}
+                  <span class="badge bg-secondary" title="Melebihi kuota license">nonaktif</span>
+                {% endif %}
+              </td>
                 <td>{{ o.ip }}</td>
                 <td class="small">
                   {% if o.vendor in ['hsairpo-cli', 'hioso-cli', 'cli'] %}

@@ -11,6 +11,7 @@ from parsers.common import (
     snmp_bulk_walk,
     snmp_parallel_walk,
     snmp_probe_alive,
+    snmp_getnext_walk,
     snmp_text,
 )
 
@@ -137,8 +138,15 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
     dists = tables.get("dist") or {}
     rxs = tables.get("rx") or {}
     txs = tables.get("tx") or {}
-    # Gabung index dari name+serial+status (web Hioso sering > jumlah name OID)
-    keys = set(names.keys()) | set(serials.keys()) | set(statuses.keys())
+    optical_n = max(len(rxs), len(txs), len(names), len(serials), len(statuses))
+    # Jika name/status lebih sedikit dari optical → GETNEXT ulang (GETBULK Hioso sering putus)
+    if optical_n > 0 and (len(names) < optical_n or len(serials) < optical_n or len(statuses) < optical_n):
+        print(f"[SNMP] Hioso tabel utama ({len(names)}) < optical ({optical_n}) — GETNEXT ulang")
+        names = snmp_getnext_walk(host, community, name_oid, port=port, timeout=timeout) or names
+        serials = snmp_getnext_walk(host, community, serial_oid, port=port, timeout=timeout) or serials
+        statuses = snmp_getnext_walk(host, community, status_oid, port=port, timeout=timeout) or statuses
+        dists = snmp_getnext_walk(host, community, dist_oid, port=port, timeout=timeout) or dists
+    keys = set(names) | set(serials) | set(statuses) | set(rxs) | set(txs)
     print(f"[SNMP] Hioso name={len(names)} serial={len(serials)} status={len(statuses)} "
           f"rx={len(rxs)} tx={len(txs)} keys={len(keys)}")
     if not keys:

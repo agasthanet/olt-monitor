@@ -4,7 +4,10 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 import config
-from parsers.common import OnuInfo, parse_serial, snmp_bulk_walk, snmp_text
+from parsers.common import (
+    OnuInfo, parse_serial, snmp_bulk_walk, snmp_parallel_walk,
+    snmp_probe_alive, snmp_text,
+)
 from parsers.hioso import _hioso_parse_power
 
 def _parse_cdata_index(suffix: str) -> Tuple[int, int, int]:
@@ -58,23 +61,34 @@ def _fetch_cdata_gpon(host: str, community: str, port: int, olt_id: str = "", ol
     rx_oid = f"{base}.6.1.4"          # gponOnuOpticalRxPower
 
     timeout = max(config.SNMP_TIMEOUT, 8)
-    print("[SNMP] C-Data GPON (34592.1.5) walk...")
-    statuses = snmp_bulk_walk(host, community, status_oid, port=port, timeout=timeout)
+    if not snmp_probe_alive(host, community, port=port, timeout=min(3.0, timeout)):
+        print("[SNMP] C-Data GPON: host tidak merespon SNMP — skip")
+        return []
+    print("[SNMP] C-Data GPON (34592.1.5) parallel walk...")
+    tables = snmp_parallel_walk(
+        host, community,
+        {
+            "status": status_oid,
+            "sn": sn_oid,
+            "desc": desc_oid,
+            "dist": dist_oid,
+            "rx": rx_oid,
+            "tx": tx_oid,
+        },
+        port=port, timeout=timeout, max_workers=6,
+    )
+    statuses = tables.get("status") or {}
+    serials = tables.get("sn") or {}
     print(f"[SNMP] C-Data GPON status: {len(statuses)}")
     if not statuses:
-        # coba SN table sebagai seed
-        serials = snmp_bulk_walk(host, community, sn_oid, port=port, timeout=timeout)
         print(f"[SNMP] C-Data GPON serial seed: {len(serials)}")
         if not serials:
             return []
         statuses = {k: 1 for k in serials.keys()}
-    else:
-        serials = snmp_bulk_walk(host, community, sn_oid, port=port, timeout=timeout)
-
-    descs = snmp_bulk_walk(host, community, desc_oid, port=port, timeout=timeout)
-    dists = snmp_bulk_walk(host, community, dist_oid, port=port, timeout=timeout)
-    rxs = snmp_bulk_walk(host, community, rx_oid, port=port, timeout=timeout)
-    txs = snmp_bulk_walk(host, community, tx_oid, port=port, timeout=timeout)
+    descs = tables.get("desc") or {}
+    dists = tables.get("dist") or {}
+    rxs = tables.get("rx") or {}
+    txs = tables.get("tx") or {}
     print(f"[SNMP] C-Data GPON sn={len(serials)} desc={len(descs)} rx={len(rxs)} tx={len(txs)}")
 
     keys = set(statuses.keys()) | set(serials.keys())
@@ -124,16 +138,31 @@ def _fetch_cdata_epon(host: str, community: str, port: int, olt_id: str = "", ol
     tx_oid = "1.3.6.1.4.1.34592.1.3.4.1.1.37"
 
     timeout = max(config.SNMP_TIMEOUT, 6)
-    print("[SNMP] C-Data EPON (34592.1.3) walk...")
-    statuses = snmp_bulk_walk(host, community, status_oid, port=port, timeout=timeout)
+    if not snmp_probe_alive(host, community, port=port, timeout=min(3.0, timeout)):
+        print("[SNMP] C-Data EPON: host tidak merespon — skip")
+        return []
+    print("[SNMP] C-Data EPON (34592.1.3) parallel walk...")
+    tables = snmp_parallel_walk(
+        host, community,
+        {
+            "status": status_oid,
+            "serial": serial_oid,
+            "type": type_oid,
+            "dist": dist_oid,
+            "rx": rx_oid,
+            "tx": tx_oid,
+        },
+        port=port, timeout=timeout, max_workers=6,
+    )
+    statuses = tables.get("status") or {}
     print(f"[SNMP] C-Data EPON status: {len(statuses)}")
     if not statuses:
         return []
-    serials = snmp_bulk_walk(host, community, serial_oid, port=port, timeout=timeout)
-    types = snmp_bulk_walk(host, community, type_oid, port=port, timeout=timeout)
-    dists = snmp_bulk_walk(host, community, dist_oid, port=port, timeout=timeout)
-    rxs = snmp_bulk_walk(host, community, rx_oid, port=port, timeout=timeout)
-    txs = snmp_bulk_walk(host, community, tx_oid, port=port, timeout=timeout)
+    serials = tables.get("serial") or {}
+    types = tables.get("type") or {}
+    dists = tables.get("dist") or {}
+    rxs = tables.get("rx") or {}
+    txs = tables.get("tx") or {}
 
     onts: List[OnuInfo] = []
     for suffix, st_raw in statuses.items():

@@ -48,14 +48,15 @@
             <div class="alert alert-secondary py-2 small mb-2">Mode SNMP: community string</div>
             <div class="mb-3">
               <label class="form-label">SNMP Community (read)</label>
-              <input type="text" name="community" class="form-control"
-                     value="{{ edit.community if edit else 'public' }}">
+              <input type="text" name="community" id="communityInput" class="form-control"
+                     value="{{ edit.community if edit else '' }}"
+                     placeholder="public / SNMPREAD">
             </div>
             <div class="mb-3">
               <label class="form-label">SNMP Write Community <span class="text-muted">(opsional, untuk restart ONT)</span></label>
-              <input type="text" name="write_community" class="form-control"
+              <input type="text" name="write_community" id="writeCommunityInput" class="form-control"
                      value="{{ edit.write_community if edit and edit.write_community else '' }}"
-                     placeholder="kosong = pakai community read">
+                     placeholder="SNMPWRITE / kosong = read">
             </div>
             <div class="row">
               <div class="col-6 mb-3">
@@ -268,11 +269,31 @@ function isCliVendor(v) {
 function toggleVendorFields() {
   var el = document.getElementById('vendorSelect');
   if (!el) return;
-  var cli = isCliVendor(el.value);
+  var v = el.value;
+  var cli = isCliVendor(v);
   var snmpBox = document.getElementById('snmpFields');
   var cliBox = document.getElementById('cliFields');
   if (snmpBox) snmpBox.style.display = cli ? 'none' : 'block';
   if (cliBox) cliBox.style.display = cli ? 'block' : 'none';
+
+  // Default community Hioso: SNMPREAD / SNMPWRITE
+  var readEl = document.getElementById('communityInput');
+  var writeEl = document.getElementById('writeCommunityInput');
+  if (!readEl) return;
+  var isEdit = {{ 'true' if edit else 'false' }};
+  if (isEdit) return; // jangan timpa saat edit OLT yang sudah ada
+  var cur = (readEl.value || '').trim();
+  var generic = (!cur || cur === 'public');
+  if (v === 'hioso' || v === 'hioso-cli' || v === 'ha7302') {
+    if (generic) readEl.value = 'SNMPREAD';
+    if (writeEl && (!(writeEl.value || '').trim() || writeEl.value === 'public')) {
+      writeEl.value = 'SNMPWRITE';
+    }
+  } else if (v === 'cdata') {
+    if (generic) readEl.value = 'public';
+  } else if (generic && !cur) {
+    readEl.value = 'public';
+  }
 }
 function syncCliPort() {
   var proto = document.getElementById('protoSelect');

@@ -6,6 +6,7 @@ from typing import List, Optional, Tuple
 import config
 from parsers.common import (
     OnuInfo,
+    _snmp_number,
     parse_serial,
     snmp_bulk_walk,
     snmp_text,

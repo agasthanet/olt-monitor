@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.9.6"
+APP_VERSION = "1.9.7"
 
 from flask import (
     Flask,
@@ -1024,13 +1024,21 @@ def settings():
             edit_id = (request.form.get("edit_id") or "").strip()
             name = (request.form.get("name") or oid).strip()
             ip = (request.form.get("ip") or "").strip()
-            community = (request.form.get("community") or "public").strip()
+            vendor = (request.form.get("vendor") or "auto").strip().lower()
+            community = (request.form.get("community") or "").strip()
             write_community = (request.form.get("write_community") or "").strip()
+            # Default community Hioso dari web GUI: SNMPREAD / SNMPWRITE
+            if vendor in ("hioso", "hioso-cli", "ha7302"):
+                if not community or community == "public":
+                    community = "SNMPREAD"
+                if not write_community:
+                    write_community = "SNMPWRITE"
+            elif not community:
+                community = "public"
             port = int(request.form.get("port") or 161)
             boards_raw = request.form.get("boards") or "1,2"
             boards = [int(x) for x in boards_raw.replace(" ", "").split(",") if x]
             firmware = request.form.get("firmware") or "auto"
-            vendor = (request.form.get("vendor") or "zte").strip().lower()
             username = (request.form.get("username") or "admin").strip()
             password = (request.form.get("password") or "").strip()
             protocol = (request.form.get("protocol") or "ssh").strip().lower()

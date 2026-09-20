@@ -16,6 +16,7 @@ from parsers.common import (
     snmp_bulk_walk,
     snmp_get,
     snmp_getnext_walk,
+    snmp_probe_alive,
     snmp_text,
 )
 
@@ -228,6 +229,10 @@ def _fetch_v1(host: str, community: str, boards: List[int], port: int, filter_po
 
 
 def _fetch_v2(host: str, community: str, boards: List[int], port: int, filter_pon: str | None = None, olt_id: str = "", olt_name: str = "") -> List[OnuInfo]:
+    if not snmp_probe_alive(host, community, port=port, timeout=min(3.0, float(getattr(config, "SNMP_TIMEOUT", 5)))):
+        print("[SNMP] ZTE V2: host tidak merespon SNMP — skip")
+        return []
+
     onts: List[OnuInfo] = []
     name_oid = "1.3.6.1.4.1.3902.1082.500.10.2.3.3.1.2"
     serial_oid = "1.3.6.1.4.1.3902.1082.500.10.2.3.3.1.18"

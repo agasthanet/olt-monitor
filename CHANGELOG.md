@@ -1,3 +1,8 @@
+## [1.10.1] — 2026-09-21
+
+### Fixed
+- Hioso: jumlah ONT kurang — seed dari **name ∪ serial ∪ status** (bukan hanya name OID)
+
 ## [1.10.0] — 2026-09-21
 
 ### Changed

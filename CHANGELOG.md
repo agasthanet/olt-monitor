@@ -1,3 +1,8 @@
+## [1.9.7] — 2026-09-21
+
+### Changed
+- Default community **Hioso**: read `SNMPREAD`, write `SNMPWRITE` (sesuai web GUI Hioso)
+
 ## [1.9.6] — 2026-09-21
 
 ### Fixed

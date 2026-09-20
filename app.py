@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.9.7"
+APP_VERSION = "1.10.0"
 
 from flask import (
     Flask,
@@ -52,6 +52,20 @@ from license_mod import (
     deactivate as license_deactivate,
     load_license,
 )
+
+def active_olts():
+    """OLT yang boleh dipakai sesuai license (Trial=1, Full=N). Sisanya diabaikan."""
+    olts = list(config.OLTS or [])
+    limit = max_olts()
+    if limit <= 0:
+        return []
+    return olts[:limit]
+
+
+def is_olt_licensed(olt_id: str) -> bool:
+    ids = {str(o.get("id")) for o in active_olts()}
+    return str(olt_id or "") in ids
+
 
 app = Flask(__name__)
 app.secret_key = "zte-c320-monitor-secret-change-me"
@@ -360,10 +374,16 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
         return onts
 
     # force=True → walk SNMP hanya OLT yang diminta
-    targets = config.OLTS
+    targets = active_olts()
     if olt_id:
         o = config.get_olt(olt_id)
-        targets = [o] if o else targets
+        if o and is_olt_licensed(str(o.get("id") or "")):
+            targets = [o]
+        elif o and not is_olt_licensed(str(o.get("id") or "")):
+            print(f"[LICENSE] OLT {olt_id} di luar kuota {get_mode()} (max {max_olts()}) — dilewati")
+            targets = []
+        else:
+            targets = targets
 
     fetched_all = []
     for olt in targets:
@@ -550,7 +570,13 @@ def _pon_sort_key(key: str):
 @app.route("/")
 def index():
     view = request.args.get("view", "pon")  # pon | odp
-    filter_olt = request.args.get("olt") or (config.OLTS[0]["id"] if config.OLTS else None)
+    filter_olt = request.args.get("olt") or (active_olts()[0]["id"] if active_olts() else None)
+
+    # License: OLT di luar kuota tidak ditampilkan
+    act = active_olts()
+    act_ids = {str(o.get("id")) for o in act}
+    if filter_olt and str(filter_olt) not in act_ids:
+        filter_olt = act[0]["id"] if act else None
     filter_pon = request.args.get("pon") or None
     filter_odp = request.args.get("odp")
     search = request.args.get("q", "").strip().lower()
@@ -609,6 +635,13 @@ def index():
     )
 
     cache_age = int(time.time() - _cache["last_update"]) if _cache["last_update"] else None
+    if len(config.OLTS or []) > max_olts():
+        flash(
+            f"Mode {get_mode().upper()}: max {max_olts()} OLT aktif. "
+            f"Ada {len(config.OLTS)} OLT di settings — hanya {max_olts()} pertama yang dimonitor. "
+            f"{'Aktivasi Full untuk multi-OLT.' if get_mode()=='trial' else ''}",
+            "warning",
+        )
     return render_template(
         "index.html",
         onts=filtered,
@@ -626,7 +659,7 @@ def index():
         search=search,
         last_update=last_update,
         filter_olt=filter_olt,
-        olts_list=config.OLTS,
+        olts_list=active_olts(),
         ping_status=get_last(filter_olt) if filter_olt else None,
         ping_all=get_all_last(),
         ping_history=get_history(filter_olt, 60) if filter_olt else [],
@@ -811,7 +844,7 @@ def api_refresh_all_async():
                 running=True, olt_id="*", filter_pon="", progress=5,
                 msg="Refresh semua OLT...", error="", count=0, started_at=t0, finished_at=0.0,
             )
-            olts = list(config.OLTS or [])
+            olts = active_olts()
             total = max(len(olts), 1)
             all_count = 0
             for i, olt in enumerate(olts):
@@ -836,14 +869,21 @@ def api_refresh_all_async():
 
 @app.route("/refresh")
 def refresh():
-    """Refresh HANYA OLT (dan opsional PON) yang sedang dilihat."""
-    filter_olt = request.args.get("olt") or (config.OLTS[0]["id"] if config.OLTS else None)
+    """Redirect ke async refresh (tidak blokir request)."""
+    filter_olt = request.args.get("olt") or (active_olts()[0]["id"] if active_olts() else None)
     filter_pon = request.args.get("pon") or None
-    t0 = time.time()
-    onts = get_onts(force=True, olt_id=filter_olt, filter_pon=filter_pon)
-    elapsed = time.time() - t0
-    scope = f"OLT={filter_olt}" + (f" PON={filter_pon}" if filter_pon else " (semua PON)")
-    flash(f"Refresh {scope}: {len(onts)} ONT dalam {elapsed:.1f}s", "success")
+    # start background job same as API
+    st = _get_refresh()
+    if not st.get("running"):
+        threading.Thread(
+            target=_run_refresh_job,
+            args=(filter_olt or "", filter_pon),
+            name=f"refresh-{filter_olt}",
+            daemon=True,
+        ).start()
+        flash("Refresh dimulai di background — progress bar di dashboard.", "info")
+    else:
+        flash("Refresh masih berjalan...", "warning")
     args = {k: v for k, v in request.args.items() if k != "refresh"}
     if filter_olt and "olt" not in args:
         args["olt"] = filter_olt
@@ -1145,7 +1185,7 @@ def settings():
 
     return render_template(
         "settings.html",
-        olts=config.OLTS,
+        olts=active_olts(),
         edit=edit,
         demo=config.DEMO_MODE,
         license_mode=get_mode(),
@@ -1623,17 +1663,23 @@ def _bg_loop():
 def _ping_loop():
     import time as _time
     _time.sleep(8)
-    print("[PING] worker aktif, interval=5s")
+    print("[PING] worker aktif, interval=5s (OLT aktif saja)")
     while True:
         try:
-            _reload_olts_from_disk()
-            olts_now = list(config.OLTS or [])
-            ping_all_olts(olts_now)
-            # health SNMP relatif berat: tiap ~6 cycle (~30 dtk)
+            # Saat refresh SNMP massal, tunda health (ringan: ping tetap)
+            busy = False
+            try:
+                busy = bool(_get_refresh().get("running") or _bg_status.get("running"))
+            except Exception:
+                pass
+            olts_now = active_olts()
+            if olts_now:
+                ping_all_olts(olts_now)
             if not hasattr(_ping_loop, "_tick"):
                 _ping_loop._tick = 0
             _ping_loop._tick += 1
-            if _ping_loop._tick % 6 == 1:
+            # Health SNMP berat → tiap ~60s, dan skip kalau refresh jalan
+            if (not busy) and _ping_loop._tick % 12 == 1:
                 for o in olts_now:
                     try:
                         refresh_health(o)
@@ -1712,4 +1758,4 @@ if __name__ == "__main__":
     print("  Buka http://127.0.0.1:5000")
     print("=" * 50)
     _setup_quiet_access_log()
-    app.run(host="0.0.0.0", port=5000, debug=True, use_reloader=False)
+    app.run(host="0.0.0.0", port=5000, debug=False, use_reloader=False, threaded=True)

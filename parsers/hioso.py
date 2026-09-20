@@ -9,6 +9,8 @@ from parsers.common import (
     _snmp_number,
     parse_serial,
     snmp_bulk_walk,
+    snmp_parallel_walk,
+    snmp_probe_alive,
     snmp_text,
 )
 
@@ -113,17 +115,31 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
     tx_oid = "1.3.6.1.4.1.25355.3.2.6.14.2.1.4"
 
     timeout = max(config.SNMP_TIMEOUT, 6)
-    print("[SNMP] Hioso EPON walk (classic)...")
-    names = snmp_bulk_walk(host, community, name_oid, port=port, timeout=timeout)
+    if not snmp_probe_alive(host, community, port=port, timeout=min(3.0, float(timeout))):
+        print("[SNMP] Hioso EPON: host tidak merespon SNMP — skip")
+        return []
+    print("[SNMP] Hioso EPON parallel walk...")
+    tables = snmp_parallel_walk(
+        host, community,
+        {
+            "name": name_oid,
+            "serial": serial_oid,
+            "status": status_oid,
+            "dist": dist_oid,
+            "rx": rx_oid,
+            "tx": tx_oid,
+        },
+        port=port, timeout=timeout, max_workers=6,
+    )
+    names = tables.get("name") or {}
     print(f"[SNMP] Hioso name: {len(names)}")
     if not names:
         return []
-
-    serials = snmp_bulk_walk(host, community, serial_oid, port=port, timeout=timeout)
-    statuses = snmp_bulk_walk(host, community, status_oid, port=port, timeout=timeout)
-    dists = snmp_bulk_walk(host, community, dist_oid, port=port, timeout=timeout)
-    rxs = snmp_bulk_walk(host, community, rx_oid, port=port, timeout=timeout)
-    txs = snmp_bulk_walk(host, community, tx_oid, port=port, timeout=timeout)
+    serials = tables.get("serial") or {}
+    statuses = tables.get("status") or {}
+    dists = tables.get("dist") or {}
+    rxs = tables.get("rx") or {}
+    txs = tables.get("tx") or {}
     print(f"[SNMP] Hioso serial={len(serials)} status={len(statuses)} rx={len(rxs)} tx={len(txs)}")
 
     def _fmt_mac(s: str) -> str:
@@ -222,16 +238,29 @@ def _fetch_hioso_gpon(host: str, community: str, port: int, olt_id: str = "", ol
     tx_oid = "1.3.6.1.4.1.25355.3.3.1.1.4.1.2"
 
     timeout = max(config.SNMP_TIMEOUT, 6)
-    print("[SNMP] Hioso GPON walk...")
-    names = snmp_bulk_walk(host, community, name_oid, port=port, timeout=timeout)
+    if not snmp_probe_alive(host, community, port=port, timeout=min(3.0, float(timeout))):
+        print("[SNMP] Hioso GPON: host tidak merespon SNMP — skip")
+        return []
+    print("[SNMP] Hioso GPON parallel walk...")
+    tables = snmp_parallel_walk(
+        host, community,
+        {
+            "name": name_oid,
+            "serial": serial_oid,
+            "status": status_oid,
+            "rx": rx_oid,
+            "tx": tx_oid,
+        },
+        port=port, timeout=timeout, max_workers=5,
+    )
+    names = tables.get("name") or {}
     print(f"[SNMP] Hioso GPON name: {len(names)}")
     if not names:
         return []
-
-    serials = snmp_bulk_walk(host, community, serial_oid, port=port, timeout=timeout)
-    statuses = snmp_bulk_walk(host, community, status_oid, port=port, timeout=timeout)
-    rxs = snmp_bulk_walk(host, community, rx_oid, port=port, timeout=timeout)
-    txs = snmp_bulk_walk(host, community, tx_oid, port=port, timeout=timeout)
+    serials = tables.get("serial") or {}
+    statuses = tables.get("status") or {}
+    rxs = tables.get("rx") or {}
+    txs = tables.get("tx") or {}
 
     onts: List[OnuInfo] = []
     for suffix, name in names.items():

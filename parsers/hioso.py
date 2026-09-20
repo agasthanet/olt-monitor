@@ -132,15 +132,17 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
         port=port, timeout=timeout, max_workers=6,
     )
     names = tables.get("name") or {}
-    print(f"[SNMP] Hioso name: {len(names)}")
-    if not names:
-        return []
     serials = tables.get("serial") or {}
     statuses = tables.get("status") or {}
     dists = tables.get("dist") or {}
     rxs = tables.get("rx") or {}
     txs = tables.get("tx") or {}
-    print(f"[SNMP] Hioso serial={len(serials)} status={len(statuses)} rx={len(rxs)} tx={len(txs)}")
+    # Gabung index dari name+serial+status (web Hioso sering > jumlah name OID)
+    keys = set(names.keys()) | set(serials.keys()) | set(statuses.keys())
+    print(f"[SNMP] Hioso name={len(names)} serial={len(serials)} status={len(statuses)} "
+          f"rx={len(rxs)} tx={len(txs)} keys={len(keys)}")
+    if not keys:
+        return []
 
     def _fmt_mac(s: str) -> str:
         s = (s or "").strip().replace(":", "").replace("-", "").replace(".", "")
@@ -150,7 +152,8 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
         return s
 
     onts: List[OnuInfo] = []
-    for suffix, name in names.items():
+    for suffix in sorted(keys, key=lambda x: [int(p) if str(p).isdigit() else 0 for p in str(x).split(".")]):
+        name = names.get(suffix, "")
         board, pon, onu_id = _parse_hioso_index(suffix)
         # Web Hioso HA7304 menampilkan slot 0-based (0/2:1), SNMP sering 1-based (1.2.1)
         if board >= 1:
@@ -225,8 +228,20 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
         except Exception as e:
             print(f"[parse hioso epon] {suffix}: {e}")
 
-    print(f"[SNMP] Hioso EPON classic result: {len(onts)} ONT")
-    return onts
+    # dedupe by lokasi
+    seen = set()
+    uniq = []
+    for o in onts:
+        k = (o.board, o.pon, o.onu_id)
+        if k in seen:
+            continue
+        seen.add(k)
+        # skip index aneh tanpa serial & tanpa status bermakna
+        if not (o.serial or "").strip() and (o.status or "") == "Unknown" and not (o.name or "").strip():
+            continue
+        uniq.append(o)
+    print(f"[SNMP] Hioso EPON result: {len(uniq)} ONT (raw keys={len(keys)})")
+    return uniq
 
 
 def _fetch_hioso_gpon(host: str, community: str, port: int, olt_id: str = "", olt_name: str = "") -> List[OnuInfo]:
@@ -254,16 +269,19 @@ def _fetch_hioso_gpon(host: str, community: str, port: int, olt_id: str = "", ol
         port=port, timeout=timeout, max_workers=5,
     )
     names = tables.get("name") or {}
-    print(f"[SNMP] Hioso GPON name: {len(names)}")
-    if not names:
-        return []
     serials = tables.get("serial") or {}
     statuses = tables.get("status") or {}
     rxs = tables.get("rx") or {}
     txs = tables.get("tx") or {}
+    keys = set(names.keys()) | set(serials.keys()) | set(statuses.keys())
+    print(f"[SNMP] Hioso GPON name={len(names)} serial={len(serials)} status={len(statuses)} "
+          f"keys={len(keys)}")
+    if not keys:
+        return []
 
     onts: List[OnuInfo] = []
-    for suffix, name in names.items():
+    for suffix in sorted(keys, key=lambda x: [int(p) if str(p).isdigit() else 0 for p in str(x).split(".")]):
+        name = names.get(suffix, "")
         board, pon, onu_id = _parse_hioso_index(suffix)
         try:
             st_raw = statuses.get(suffix)

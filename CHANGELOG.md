@@ -1,3 +1,25 @@
+## [1.10.0] — 2026-09-21
+
+### Changed
+- **Optimasi SNMP walk**
+  - `snmp_parallel_walk`: beberapa tabel OID di-walk paralel
+  - `snmp_probe_alive`: skip cepat jika OLT tidak merespon
+  - GETBULK max-repetitions default 50
+  - Hioso / C-Data / ZTE memakai parallel walk
+
+## [1.9.9] — 2026-09-21
+
+### Fixed
+- App "bengong": Flask `threaded=True`, debug off
+- Background refresh hanya OLT aktif + skip saat refresh UI
+- Ping/health lebih ringan (health ~60s, skip saat SNMP walk)
+- Cache ONT dilindungi lock
+
+## [1.9.8] — 2026-09-21
+
+### Fixed
+- **Trial max 1 OLT** ditegakkan: dropdown/monitor/refresh hanya OLT dalam kuota (bukan semua di settings)
+
 ## [1.9.7] — 2026-09-21
 
 ### Changed

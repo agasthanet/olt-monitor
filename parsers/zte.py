@@ -1,18 +1,21 @@
 """ZTE C320/C300 SNMP OID parsers (V1 / V2)."""
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Optional, Tuple
 
 import config
 from parsers.common import (
     OnuInfo,
+    STATUS_DISPLAY,
+    STATUS_MAP,
     convert_rx_power,
     convert_tx_power,
     parse_serial,
     prefer_ont_name,
     snmp_bulk_walk,
     snmp_get,
+    snmp_getnext_walk,
     snmp_text,
 )
 

@@ -1,3 +1,8 @@
+## [1.10.2] — 2026-09-21
+
+### Fixed
+- Hioso jumlah ONT: GETBULK sering putus (~50); lengkapi GETNEXT + index dari optical Rx/Tx
+
 ## [1.10.1] — 2026-09-21
 
 ### Fixed

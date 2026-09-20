@@ -506,15 +506,18 @@ def snmp_bulk_walk(
         if left_subtree or not advanced:
             break
 
-    # Fallback GETNEXT jika bulk kosong (banyak OLT ZTE: Get-bulk=0 di show snmp)
-    if not result:
-        result = snmp_getnext_walk(
+    # Fallback/lengkapi dengan GETNEXT
+    if not result or bulk_failed:
+        more = snmp_getnext_walk(
             host, community, oid, port=port, timeout=timeout, max_oids=max_oids
         )
-        if result:
-            print(f"[SNMP] GETNEXT fallback OK untuk {oid}: {len(result)} entry")
-
+        if more:
+            before = len(result)
+            result.update(more)
+            tag = "fallback" if not before else "complete"
+            print(f"[SNMP] GETNEXT {tag} {oid}: {len(result)} entry")
     return result
+
 
 
 

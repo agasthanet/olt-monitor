@@ -1,3 +1,8 @@
+## [1.9.6] — 2026-09-21
+
+### Fixed
+- Import hilang setelah split parsers (`_snmp_number`, `snmp_getnext_walk`, `as_completed`, `STATUS_MAP`)
+
 ## [1.9.5] — 2026-09-21
 
 ### Changed

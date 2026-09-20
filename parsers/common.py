@@ -6,7 +6,7 @@ import re
 import socket
 import struct
 import time
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
@@ -446,7 +446,7 @@ def snmp_bulk_walk(
     oid: str,
     port: int = 161,
     timeout: float = 5.0,
-    max_repetitions: int = 40,
+    max_repetitions: int = 50,
     max_oids: int = 5000,
 ) -> Dict[str, object]:
     """
@@ -515,6 +515,59 @@ def snmp_bulk_walk(
             print(f"[SNMP] GETNEXT fallback OK untuk {oid}: {len(result)} entry")
 
     return result
+
+
+
+def snmp_parallel_walk(
+    host: str,
+    community: str,
+    oids: Dict[str, str],
+    port: int = 161,
+    timeout: float = 5.0,
+    max_repetitions: int = 50,
+    max_oids: int = 5000,
+    max_workers: int = 6,
+) -> Dict[str, Dict[str, object]]:
+    """
+    Walk beberapa OID sekaligus (parallel).
+    oids: {label: oid_string}
+    Return: {label: {suffix: value}}
+    Jika host unreachable, deteksi cepat dari walk pertama yang timeout kosong.
+    """
+    if not oids:
+        return {}
+    labels = list(oids.keys())
+    results: Dict[str, Dict[str, object]] = {k: {} for k in labels}
+
+    def _one(label: str, oid: str) -> tuple:
+        try:
+            data = snmp_bulk_walk(
+                host, community, oid,
+                port=port, timeout=timeout,
+                max_repetitions=max_repetitions,
+                max_oids=max_oids,
+            )
+            return label, data or {}
+        except Exception as e:
+            print(f"[SNMP] parallel walk {label} error: {e}")
+            return label, {}
+
+    workers = min(max_workers, max(1, len(labels)))
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_one, lab, oid): lab for lab, oid in oids.items()}
+        for fut in as_completed(futs):
+            lab, data = fut.result()
+            results[lab] = data
+    return results
+
+
+def snmp_probe_alive(host: str, community: str, port: int = 161, timeout: float = 2.0) -> bool:
+    """Cek cepat SNMP hidup (sysDescr). Gagal → skip walk panjang."""
+    try:
+        v = snmp_get(host, community, "1.3.6.1.2.1.1.1.0", port=port, timeout=timeout, quiet=True)
+        return v is not None
+    except Exception:
+        return False
 
 
 def snmp_get_rx_for_suffixes(

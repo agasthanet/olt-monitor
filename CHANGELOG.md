@@ -1,3 +1,21 @@
+## [1.9.5] — 2026-09-21
+
+### Changed
+- Parser SNMP OID dipisah per vendor di folder `parsers/`:
+  - `common.py` — engine SNMP, OnuInfo, convert power
+  - `zte.py` — ZTE C320/C300
+  - `hioso.py` — Hioso EPON/GPON
+  - `cdata.py` — C-Data GPON/EPON
+  - `vsol.py` / `bdcom.py` / `hsairpo.py`
+  - `router.py` — dispatcher `fetch_all_onts`
+- `snmp_zte.py` tetap ada sebagai compatibility shim
+
+## [1.9.4] — 2026-09-21
+
+### Added
+- Support **C-Data GPON** SNMP (MIB 34592.1.5) — status, SN, desc, Rx/Tx, distance
+- Vendor option **C-Data** di Settings + auto-detect dari sysDescr
+
 ## [1.9.3] — 2026-09-19
 
 ### Added

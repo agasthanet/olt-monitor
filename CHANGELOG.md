@@ -1,3 +1,10 @@
+## [1.10.3] — 2026-09-21
+
+### Fixed
+- **HWID berubah setelah reboot**: tidak lagi mengandalkan `uuid.getnode()` (MAC random).
+  Pakai `/etc/machine-id` + MAC stabil, lalu di-freeze di `data/machine_hwid.txt`.
+- Setelah update ini HWID bisa beda sekali → **aktifkan ulang license key** (keygen pakai HWID baru).
+
 ## [1.10.2] — 2026-09-21
 
 ### Fixed

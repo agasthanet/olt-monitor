@@ -136,22 +136,25 @@
       <div class="card-body">
         <p class="mb-1 small">Mode: <strong>{{ license_mode|upper }}</strong> — max <strong>{{ license_max_olts }}</strong> OLT</p>
         <p class="mb-2 small">HWID mesin ini:</p>
-        <div class="input-group input-group-sm mb-3">
+        <div class="input-group input-group-sm mb-2">
           <input type="text" class="form-control font-monospace" id="hwidBox" readonly value="{{ license_hwid }}">
           <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('hwidBox').value)">Copy</button>
         </div>
+        <form method="post" class="mb-3" onsubmit="return confirm('Reset HWID?\nKey lama tidak valid lagi.\nLanjut?');">
+          <input type="hidden" name="action" value="reset_hwid">
+          <button type="submit" class="btn btn-sm btn-warning">
+            <i class="bi bi-arrow-repeat"></i> Reset HWID
+          </button>
+          <span class="small text-muted ms-1">pakai jika HWID kembar / pindah mesin</span>
+        </form>
+        <p class="small text-muted">Jangan copy folder <code>data/</code> antar mesin — HWID ikut ke-copy.</p>
+        <hr>
         {% if license_mode == 'full' %}
         <p class="small text-success mb-2">Aktif sejak: {{ license_info.activated_at or '-' }}</p>
         <form method="post" onsubmit="return confirm('Kembali ke Trial?')">
           <input type="hidden" name="action" value="deactivate_license">
-          <button type="submit" class="btn btn-sm btn-outline-warning">Deaktivasi (Trial)</button>
+          <button type="submit" class="btn btn-sm btn-outline-secondary">Deaktivasi (Trial)</button>
         </form>
-        <form method="post" class="mt-2" onsubmit="return confirm('Reset HWID? Key lama tidak valid. Lanjut?');">
-          <input type="hidden" name="action" value="reset_hwid">
-          <button type="submit" class="btn btn-sm btn-outline-warning">Reset HWID (jika kembar)</button>
-        </form>
-        <p class="small text-muted mb-0">Jangan copy folder <code>data/</code> antar mesin — HWID ikut ke-copy.</p>
-
         {% else %}
         <p class="small text-muted">Trial: max 1 OLT. Full: kelipatan 5 OLT. Kirim HWID ke admin untuk key.</p>
         <form method="post">

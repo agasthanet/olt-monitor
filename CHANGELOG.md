@@ -1,3 +1,10 @@
+## [1.10.4] — 2026-09-21
+
+### Fixed
+- HWID **kembar antar mesin** (VM/container clone): ditambah `install_id` unik per instalasi
+- Tombol **Reset HWID** di Settings jika masih bentrok
+- Jangan copy folder `data/` antar server
+
 ## [1.10.3] — 2026-09-21
 
 ### Fixed

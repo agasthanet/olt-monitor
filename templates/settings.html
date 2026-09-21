@@ -146,6 +146,12 @@
           <input type="hidden" name="action" value="deactivate_license">
           <button type="submit" class="btn btn-sm btn-outline-warning">Deaktivasi (Trial)</button>
         </form>
+        <form method="post" class="mt-2" onsubmit="return confirm('Reset HWID? Key lama tidak valid. Lanjut?');">
+          <input type="hidden" name="action" value="reset_hwid">
+          <button type="submit" class="btn btn-sm btn-outline-warning">Reset HWID (jika kembar)</button>
+        </form>
+        <p class="small text-muted mb-0">Jangan copy folder <code>data/</code> antar mesin — HWID ikut ke-copy.</p>
+
         {% else %}
         <p class="small text-muted">Trial: max 1 OLT. Full: kelipatan 5 OLT. Kirim HWID ke admin untuk key.</p>
         <form method="post">

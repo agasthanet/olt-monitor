@@ -22,30 +22,125 @@ TRIAL_MAX_OLTS = 1
 DEFAULT_FULL_MAX = 5  # key legacy / fallback
 
 
-def get_hwid() -> str:
+def _read_machine_id() -> str:
+    """Linux machine-id stabil antar reboot (bukan MAC random)."""
+    for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+        try:
+            p = Path(path)
+            if p.is_file():
+                val = p.read_text(encoding="utf-8", errors="ignore").strip()
+                if val and len(val) >= 8:
+                    return val
+        except Exception:
+            continue
+    return ""
+
+
+def _read_stable_mac() -> str:
+    """MAC fisik dari /sys/class/net — skip lo/docker/veth/br."""
+    skip_prefix = ("lo", "docker", "veth", "br-", "virbr", "cni", "flannel", "tun", "tap", "wg")
+    base = Path("/sys/class/net")
+    if not base.is_dir():
+        return ""
+    try:
+        names = sorted(p.name for p in base.iterdir() if p.is_dir())
+    except Exception:
+        return ""
+    for name in names:
+        if name.startswith(skip_prefix) or name == "lo":
+            continue
+        try:
+            mac = (base / name / "address").read_text(encoding="utf-8", errors="ignore").strip().lower()
+            if not mac or mac in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"):
+                continue
+            # skip locally-administered random MAC (bit 1 of first octet) bila ada alternatif?
+            # tetap pakai — di VM sering LAA tapi stabil
+            return mac.replace(":", "")
+        except Exception:
+            continue
+    return ""
+
+
+def _windows_machine_guid() -> str:
+    try:
+        if platform.system() != "Windows":
+            return ""
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Cryptography",
+        )
+        guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+        winreg.CloseKey(key)
+        return str(guid or "")
+    except Exception:
+        return ""
+
+
+def _format_hwid(digest_hex: str) -> str:
+    digest_hex = re.sub(r"[^0-9A-Fa-f]", "", digest_hex).upper()
+    if len(digest_hex) < 16:
+        digest_hex = (digest_hex + "0" * 16)[:16]
+    return "-".join(digest_hex[i : i + 4] for i in range(0, 16, 4))
+
+
+def _compute_hwid_raw() -> str:
+    """
+    Sumber stabil (urutan prioritas):
+    1) Windows MachineGuid
+    2) /etc/machine-id
+    3) MAC fisik stabil
+    4) platform system+machine (bukan hostname — bisa berubah)
+    Hindari uuid.getnode() — di Linux/container sering MAC random tiap boot.
+    """
     parts = []
-    try:
-        parts.append(str(uuid.getnode()))
-    except Exception:
-        pass
-    parts.append(platform.node() or "")
-    parts.append(platform.system() or "")
-    parts.append(platform.machine() or "")
-    try:
-        if platform.system() == "Windows":
-            import winreg
-            key = winreg.OpenKey(
-                winreg.HKEY_LOCAL_MACHINE,
-                r"SOFTWARE\Microsoft\Cryptography",
-            )
-            guid, _ = winreg.QueryValueEx(key, "MachineGuid")
-            winreg.CloseKey(key)
-            parts.append(str(guid))
-    except Exception:
-        pass
+    win = _windows_machine_guid()
+    if win:
+        parts.append("win:" + win)
+    mid = _read_machine_id()
+    if mid:
+        parts.append("mid:" + mid)
+    mac = _read_stable_mac()
+    if mac:
+        parts.append("mac:" + mac)
+    parts.append("sys:" + (platform.system() or ""))
+    parts.append("arch:" + (platform.machine() or ""))
+    if not mid and not mac and not win:
+        # fallback terakhir — tetap bisa berubah di container tanpa machine-id
+        try:
+            parts.append("node:" + str(uuid.getnode()))
+        except Exception:
+            parts.append("node:0")
     raw = "|".join(parts)
-    digest = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest().upper()
-    return "-".join(digest[i : i + 4] for i in range(0, 16, 4))
+    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest().upper()
+
+
+def get_hwid() -> str:
+    """
+    HWID stabil antar reboot.
+    Setelah dihitung sekali, disimpan di data/machine_hwid.txt agar tidak berubah
+    meski interface/container reconfigure.
+    """
+    freeze = _DATA / "machine_hwid.txt"
+    try:
+        if freeze.is_file():
+            saved = freeze.read_text(encoding="utf-8", errors="ignore").strip().upper()
+            # format AAAA-BBBB-CCCC-DDDD
+            if re.match(r"^[0-9A-F]{4}(-[0-9A-F]{4}){3}$", saved):
+                return saved
+            norm = _normalize_hwid(saved)
+            if len(norm) >= 16:
+                return _format_hwid(norm)
+    except Exception:
+        pass
+
+    hwid = _format_hwid(_compute_hwid_raw())
+    try:
+        _DATA.mkdir(parents=True, exist_ok=True)
+        freeze.write_text(hwid + "\n", encoding="utf-8")
+    except Exception as e:
+        print(f"[LICENSE] gagal simpan machine_hwid: {e}")
+    return hwid
 
 
 def _normalize_hwid(hwid: str) -> str:

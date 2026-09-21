@@ -23,7 +23,7 @@ DEFAULT_FULL_MAX = 5  # key legacy / fallback
 
 
 def _read_machine_id() -> str:
-    """Linux machine-id stabil antar reboot (bukan MAC random)."""
+    """Linux machine-id (bisa sama antar VM yang di-clone)."""
     for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
         try:
             p = Path(path)
@@ -37,7 +37,7 @@ def _read_machine_id() -> str:
 
 
 def _read_stable_mac() -> str:
-    """MAC fisik dari /sys/class/net — skip lo/docker/veth/br."""
+    """MAC dari interface non-virtual (bisa sama di template clone)."""
     skip_prefix = ("lo", "docker", "veth", "br-", "virbr", "cni", "flannel", "tun", "tap", "wg")
     base = Path("/sys/class/net")
     if not base.is_dir():
@@ -47,14 +47,12 @@ def _read_stable_mac() -> str:
     except Exception:
         return ""
     for name in names:
-        if name.startswith(skip_prefix) or name == "lo":
+        if name == "lo" or name.startswith(skip_prefix):
             continue
         try:
             mac = (base / name / "address").read_text(encoding="utf-8", errors="ignore").strip().lower()
             if not mac or mac in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"):
                 continue
-            # skip locally-administered random MAC (bit 1 of first octet) bila ada alternatif?
-            # tetap pakai — di VM sering LAA tapi stabil
             return mac.replace(":", "")
         except Exception:
             continue
@@ -84,16 +82,43 @@ def _format_hwid(digest_hex: str) -> str:
     return "-".join(digest_hex[i : i + 4] for i in range(0, 16, 4))
 
 
+def _get_or_create_install_id() -> str:
+    """
+    ID unik per instalasi app (bukan per hardware template).
+    Disimpan di data/install_id.txt — stabil reboot, beda antar mesin
+    meski VM di-clone (asal folder data/ tidak di-copy).
+    """
+    path = _DATA / "install_id.txt"
+    try:
+        if path.is_file():
+            val = path.read_text(encoding="utf-8", errors="ignore").strip().lower()
+            if re.match(r"^[0-9a-f]{16,64}$", val):
+                return val
+    except Exception:
+        pass
+    import secrets
+    val = secrets.token_hex(16)
+    try:
+        _DATA.mkdir(parents=True, exist_ok=True)
+        path.write_text(val + "\n", encoding="utf-8")
+    except Exception as e:
+        print(f"[LICENSE] gagal simpan install_id: {e}")
+    return val
+
+
 def _compute_hwid_raw() -> str:
     """
-    Sumber stabil (urutan prioritas):
-    1) Windows MachineGuid
-    2) /etc/machine-id
-    3) MAC fisik stabil
-    4) platform system+machine (bukan hostname — bisa berubah)
-    Hindari uuid.getnode() — di Linux/container sering MAC random tiap boot.
+    Campur:
+    - install_id (unik per install — cegah kembar antar mesin clone)
+    - machine-id / MachineGuid / MAC (ikatan mesin)
+    - hostname + arch
     """
-    parts = []
+    parts = [
+        "iid:" + _get_or_create_install_id(),
+        "host:" + (platform.node() or ""),
+        "sys:" + (platform.system() or ""),
+        "arch:" + (platform.machine() or ""),
+    ]
     win = _windows_machine_guid()
     if win:
         parts.append("win:" + win)
@@ -103,29 +128,20 @@ def _compute_hwid_raw() -> str:
     mac = _read_stable_mac()
     if mac:
         parts.append("mac:" + mac)
-    parts.append("sys:" + (platform.system() or ""))
-    parts.append("arch:" + (platform.machine() or ""))
-    if not mid and not mac and not win:
-        # fallback terakhir — tetap bisa berubah di container tanpa machine-id
-        try:
-            parts.append("node:" + str(uuid.getnode()))
-        except Exception:
-            parts.append("node:0")
     raw = "|".join(parts)
     return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest().upper()
 
 
 def get_hwid() -> str:
     """
-    HWID stabil antar reboot.
-    Setelah dihitung sekali, disimpan di data/machine_hwid.txt agar tidak berubah
-    meski interface/container reconfigure.
+    HWID stabil antar reboot, unik per instalasi.
+    Freeze di data/machine_hwid.txt setelah dihitung sekali.
+    Jangan copy folder data/ antar server — ikut ke-copy HWID + license.
     """
     freeze = _DATA / "machine_hwid.txt"
     try:
         if freeze.is_file():
             saved = freeze.read_text(encoding="utf-8", errors="ignore").strip().upper()
-            # format AAAA-BBBB-CCCC-DDDD
             if re.match(r"^[0-9A-F]{4}(-[0-9A-F]{4}){3}$", saved):
                 return saved
             norm = _normalize_hwid(saved)
@@ -141,6 +157,16 @@ def get_hwid() -> str:
     except Exception as e:
         print(f"[LICENSE] gagal simpan machine_hwid: {e}")
     return hwid
+
+
+def reset_hwid() -> str:
+    """Hapus freeze + install_id, buat HWID baru (untuk migrasi / bentrok)."""
+    for name in ("machine_hwid.txt", "install_id.txt"):
+        try:
+            (_DATA / name).unlink(missing_ok=True)
+        except Exception:
+            pass
+    return get_hwid()
 
 
 def _normalize_hwid(hwid: str) -> str:

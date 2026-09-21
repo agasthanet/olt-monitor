@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.10.3"
+APP_VERSION = "1.10.4"
 
 from flask import (
     Flask,
@@ -51,6 +51,7 @@ from license_mod import (
     activate as license_activate,
     deactivate as license_deactivate,
     load_license,
+    reset_hwid as license_reset_hwid,
 )
 
 def active_olts():
@@ -1137,6 +1138,11 @@ def settings():
             flash("Mode kembali ke Trial (max 1 OLT). Full max 5 OLT.", "warning")
             return redirect(url_for("settings"))
 
+
+        if action == "reset_hwid":
+            new_h = license_reset_hwid()
+            flash(f"HWID direset. HWID baru: {new_h} — generate & aktifkan key ulang.", "warning")
+            return redirect(url_for("settings"))
 
         if action == "change_password":
             cur = request.form.get("current_password") or ""

@@ -31,7 +31,7 @@ _CFG_FILE = _DATA / "telemetry.json"
 DEFAULT_ENDPOINT = "https://olt-monitor-telemetry.agastha-net.workers.dev/v1/ping"
 
 _DEFAULT_CFG = {
-    "enabled": False,
+    "enabled": True,
     "endpoint": DEFAULT_ENDPOINT,
     "interval_hours": 24,
     "last_sent": None,
@@ -47,14 +47,19 @@ def load_cfg() -> dict:
         if _CFG_FILE.exists():
             data = json.loads(_CFG_FILE.read_text(encoding="utf-8"))
             if isinstance(data, dict):
-                cfg.update(data)
+                # pertahankan endpoint/last_* dari file; enabled dikontrol di bawah
+                for k in ("endpoint", "interval_hours", "last_sent", "last_ok", "last_error"):
+                    if k in data:
+                        cfg[k] = data[k]
     except Exception as e:
         print(f"[TELEMETRY] load cfg: {e}")
-    # env override endpoint
     import os
     env_url = (os.getenv("TELEMETRY_URL") or "").strip()
     if env_url:
         cfg["endpoint"] = env_url
+    # Selalu aktif kecuali TELEMETRY_DISABLED=1
+    disabled = (os.getenv("TELEMETRY_DISABLED") or "").strip().lower() in ("1", "true", "yes")
+    cfg["enabled"] = not disabled
     return cfg
 
 
@@ -80,13 +85,15 @@ def build_payload(
     license_mode: str,
     license_max_olts: int,
     olt_count: int,
+    email: str = "",
 ) -> dict:
     return {
-        "schema": 1,
+        "schema": 2,
         "app": "olt-monitor",
         "version": app_version,
         "install_id": install_id,
         "hwid": hwid,
+        "email": (email or "").strip().lower()[:120],
         "license_mode": license_mode,
         "license_max_olts": int(license_max_olts or 0),
         "olt_count": int(olt_count or 0),
@@ -136,6 +143,7 @@ def maybe_report(
     license_mode: str,
     license_max_olts: int,
     olt_count: int,
+    email: str = "",
     force: bool = False,
 ) -> dict:
     """
@@ -172,6 +180,7 @@ def maybe_report(
         license_mode=license_mode or "trial",
         license_max_olts=license_max_olts,
         olt_count=olt_count,
+        email=email or "",
     )
     ok, msg = send_ping(payload, endpoint)
     cfg["last_sent"] = now

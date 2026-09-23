@@ -1,3 +1,9 @@
+## [1.12.1] — 2026-09-23
+
+### Added
+- Tombol **Restart app** di kolom License halaman stats (server telemetry)
+- App menjalankan restart saat terima perintah dari server (saat ping)
+
 ## [1.12.0] — 2026-09-23
 
 ### Added

@@ -19,7 +19,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.12.0"
+APP_VERSION = "1.12.1"
 
 from flask import (
     Flask,
@@ -1918,6 +1918,20 @@ def _bg_loop():
             background_refresh_all()
         except Exception as e:
             print(f"[BG] loop error: {e}")
+        # Sinkron license + perintah remote (restart) antar refresh SNMP
+        try:
+            maybe_report(
+                app_version=APP_VERSION,
+                install_id=_get_or_create_install_id(),
+                hwid=get_hwid(),
+                license_mode=get_mode(),
+                license_max_olts=max_olts(),
+                olt_count=len(config.OLTS or []),
+                force=True,
+                **_telemetry_profile_kwargs(),
+            )
+        except Exception as e:
+            print(f"[TELEMETRY] bg sync: {e}")
         _time.sleep(max(60, interval))
 
 

@@ -2,7 +2,7 @@
 
 > Panduan instalasi dan penggunaan untuk teknisi / NOC.
 
-**Versi stabil: `1.6.4`**
+**Versi stabil: `1.10.2`**
 
 Aplikasi web untuk memantau ONT/ONU dari OLT (status, Rx/Tx, mapping ODP) secara terpusat.
 
@@ -26,6 +26,54 @@ Repo: https://github.com/agasthanet/olt-monitor
 - SNMP community **atau** akses Telnet/SSH (tergantung vendor)
 
 ---
+
+
+## Spesifikasi sistem (rekomendasi)
+
+Untuk memonitor **±10 OLT** (asumsi ~50–100 ONU per OLT, total ~500–1000 ONU):
+
+### Nyaman (disarankan)
+
+| Komponen | Spec |
+|----------|------|
+| **CPU** | 2–4 vCPU (x86_64) |
+| **RAM** | **2–4 GB** |
+| **Storage** | 10–20 GB (SSD lebih enak) |
+| **OS** | Ubuntu 22.04 / Debian 12 (atau setara) |
+| **Jaringan** | Latency ke OLT stabil; port **UDP/161** (SNMP) tidak di-filter |
+
+### Minimum (masih bisa jalan)
+
+| Komponen | Spec |
+|----------|------|
+| CPU | 1–2 vCPU |
+| RAM | **1 GB** (lebih longgar 2 GB) |
+| Storage | 5 GB |
+
+### Yang membebani aplikasi
+
+1. **Refresh SNMP** (paling berat) — walk paralel per OLT  
+2. **Background refresh** (~30 menit) × jumlah OLT  
+3. **Ping** tiap 5 detik (ringan)  
+4. **Health SNMP** sesekali  
+
+Dengan optimasi walk paralel, **10 OLT di 2 vCPU / 2 GB** biasanya cukup. Jika tiap OLT 100+ ONU dan sering force-refresh bersamaan, naikkan ke **4 GB RAM**.
+
+### Estimasi waktu refresh
+
+| Kondisi | Estimasi |
+|---------|----------|
+| 1 OLT ~60 ONU | ~20–40 detik |
+| 10 OLT (background berurutan) | ~5–15 menit total |
+| Refresh 1 OLT dari UI | ~20–40 detik |
+
+### Tips deploy
+
+- Jangan taruh di host yang sama dengan OLT jika CPU OLT sudah penuh  
+- Pastikan server monitor → OLT **routing/latency bagus** (timeout SNMP = UI terasa lambat)  
+- Mode license **Full** untuk multi-OLT (Trial max 1 OLT)  
+- Container LXC / MikroTik: disarankan **≥ 2 GB RAM** (jangan 512 MB)
+
 
 ## Instalasi di Linux (Ubuntu/Debian)
 
@@ -171,6 +219,22 @@ Di **Settings** tersedia:
 - **Update dari GitHub** — `git pull` / script update (folder `data/` aman)
 
 Setelah update, **restart** `python app.py`.
+
+---
+
+## Telemetry (opsional)
+
+Default **mati**. Di Settings bisa diaktifkan (opt-in).
+
+Data yang dikirim: versi app, mode license, jumlah OLT, HWID/install_id, platform.
+**Tidak** dikirim: IP OLT, community, password, serial ONU, nama pelanggan.
+
+Penerima contoh (server admin):
+
+```bash
+python tools/telemetry_collector.py
+# POST /v1/ping  |  GET /v1/stats?days=30
+```
 
 ---
 

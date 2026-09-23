@@ -1,3 +1,10 @@
+## [1.12.0] — 2026-09-23
+
+### Added
+- **License Full dari server telemetry** (tanpa keygen)
+- App sinkron mode/max_olts saat ping ke `/v1/ping`
+- Worker: `POST /v1/license` + tombol Full/Trial di halaman stats
+
 ## [1.11.5] — 2026-09-23
 
 ### Fixed

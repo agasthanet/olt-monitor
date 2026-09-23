@@ -282,21 +282,30 @@ def apply_remote_license(mode: str, max_olts: int = 5, note: str = "") -> None:
     if mode == "trial":
         n = TRIAL_MAX_OLTS
     else:
-        n = normalize_limit(n) if n >= 5 else DEFAULT_FULL_MAX
+        try:
+            n = int(n)
+        except Exception:
+            n = DEFAULT_FULL_MAX
+        if n < 5:
+            n = 5
+        n = normalize_limit(n)
     lic = load_license()
     lic["mode"] = mode
     lic["max_olts"] = n
     lic["source"] = "remote"
-    lic["key"] = lic.get("key") or ""  # key lokal opsional
+    # remote grant mengalahkan key lokal
+    if mode == "full":
+        lic["key"] = lic.get("key") or "REMOTE"
     lic["remote_synced_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if note:
         lic["remote_note"] = str(note)[:120]
-    if mode == "full" and not lic.get("activated_at"):
+    if mode == "full":
         lic["activated_at"] = lic["remote_synced_at"]
-    if mode == "trial":
+    else:
         lic["activated_at"] = ""
+        lic["key"] = ""
     save_license(lic)
-    print(f"[LICENSE] remote → {mode} max_olts={n}")
+    print(f"[LICENSE] remote → {mode} max_olts={n} source=remote")
 
 
 def clear_remote_to_trial() -> None:
@@ -306,15 +315,14 @@ def clear_remote_to_trial() -> None:
 def get_mode() -> str:
     lic = load_license()
     # Prioritas: grant dari server telemetry
-    if (lic.get("source") or "") == "remote":
-        if (lic.get("mode") or "").lower() == "full":
-            return "full"
-        return "trial"
+    src = (lic.get("source") or "").strip().lower()
+    mode = (lic.get("mode") or "").strip().lower()
+    if src == "remote":
+        return "full" if mode == "full" else "trial"
     key = (lic.get("key") or "").strip()
-    if key and validate_key(key):
+    if key and key != "REMOTE" and validate_key(key):
         return "full"
-    if (lic.get("mode") or "").lower() == "full" and lic.get("max_olts"):
-        # legacy / remote tersimpan
+    if mode == "full" and int(lic.get("max_olts") or 0) > 1:
         return "full"
     return "trial"
 

@@ -8,6 +8,8 @@ from parsers.common import (
     OnuInfo,
     _snmp_number,
     parse_serial,
+    prefer_ont_name,
+    is_blank_ont_name,
     snmp_bulk_walk,
     snmp_parallel_walk,
     snmp_probe_alive,
@@ -182,14 +184,13 @@ def _fetch_hioso_epon(host: str, community: str, port: int, olt_id: str = "", ol
                     status = "Offline"
 
             serial = _fmt_mac(parse_serial(serials.get(suffix, "")))
-            # name dari OID 37; kosong/"NA" → biarkan NA atau serial
+            # name dari OID 37; NA/kosong → biarkan NA (nanti diisi dari cache history bila ada)
             display = snmp_text(name)
             display = "".join(ch for ch in display if ch.isprintable()).strip()
-            if not display or display.isdigit():
+            if not display or display.isdigit() or display.upper() in ("NA", "N/A", "NULL", "-"):
                 display = "NA"
-            if display.upper() == "NA" and serial:
-                # tetap tampilkan NA seperti web Hioso, serial di kolom sendiri
-                display = "NA"
+            else:
+                display = prefer_ont_name(display, display)
 
             rx_val = _hioso_parse_power(rxs.get(suffix))
             # optical table kadang index beda — coba tanpa suffix match longgar

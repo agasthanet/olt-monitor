@@ -170,15 +170,33 @@
     
     <div class="card shadow-sm mt-3">
       <div class="card-header bg-white">
-        <h6 class="mb-0"><i class="bi bi-envelope"></i> Email registrasi</h6>
+        <h6 class="mb-0"><i class="bi bi-person-vcard"></i> Data registrasi</h6>
       </div>
       <div class="card-body">
-        <p class="small text-muted">Email wajib. Ikut dikirim di telemetry (identitas instalasi).</p>
         <form method="post">
-          <input type="hidden" name="action" value="save_email">
-          <input type="email" name="email" class="form-control form-control-sm mb-2"
-                 value="{{ registered_email or '' }}" required placeholder="nama@domain.com">
-          <button type="submit" class="btn btn-sm btn-outline-primary">Simpan email</button>
+          <input type="hidden" name="action" value="save_profile">
+          <div class="mb-2">
+            <label class="form-label small">Nama lengkap</label>
+            <input type="text" name="full_name" class="form-control form-control-sm"
+                   value="{{ user_profile.full_name if user_profile else '' }}" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Perusahaan / ISP</label>
+            <input type="text" name="company" class="form-control form-control-sm"
+                   value="{{ user_profile.company if user_profile else '' }}" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">Email</label>
+            <input type="email" name="email" class="form-control form-control-sm"
+                   value="{{ user_profile.email if user_profile else '' }}" required>
+          </div>
+          <div class="mb-2">
+            <label class="form-label small">No. WhatsApp</label>
+            <input type="tel" name="whatsapp" class="form-control form-control-sm"
+                   value="{{ user_profile.whatsapp if user_profile else '' }}" required
+                   placeholder="08xxxxxxxxxx">
+          </div>
+          <button type="submit" class="btn btn-sm btn-outline-primary">Simpan</button>
         </form>
       </div>
     </div>

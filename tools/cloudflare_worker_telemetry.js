@@ -7,6 +7,7 @@
  * POST /v1/ping          — app ping (response may include license)
  * GET  /v1/license?install_id=&hwid=
  * POST /v1/license       — admin set {token, install_id, mode, max_olts}
+ * POST /v1/command       — admin {token, install_id, action: restart}
  * GET  /v1/stats?days=30&token=
  */
 
@@ -24,6 +25,8 @@ export default {
         return cors(await handleLicenseGet(url, env));
       if (path === "/v1/license" && request.method === "POST")
         return cors(await handleLicenseSet(request, env));
+      if (path === "/v1/command" && request.method === "POST")
+        return cors(await handleCommand(request, env));
       if (path === "/v1/stats" && request.method === "GET")
         return cors(await handleStats(request, env, url));
       if (path === "/" || path === "/health")
@@ -80,7 +83,23 @@ async function handlePing(request, env) {
   }
 
   const lic = (await getLicense(env, installId)) || { mode: "trial", max_olts: 1 };
-  return json({ ok: true, license: { mode: lic.mode || "trial", max_olts: lic.max_olts || 1 } });
+  const commands = [];
+  try {
+    const cmdRaw = await env.TELEMETRY_KV.get(`cmd:${installId}`);
+    if (cmdRaw) {
+      const cmd = JSON.parse(cmdRaw);
+      if (cmd && cmd.action === "restart") {
+        commands.push("restart");
+        // one-shot
+        await env.TELEMETRY_KV.delete(`cmd:${installId}`);
+      }
+    }
+  } catch {}
+  return json({
+    ok: true,
+    license: { mode: lic.mode || "trial", max_olts: lic.max_olts || 1 },
+    commands,
+  });
 }
 
 async function handleLicenseGet(url, env) {
@@ -109,7 +128,25 @@ async function handleLicenseSet(request, env) {
   return json({ ok: true, install_id: installId, license: rec });
 }
 
+async function handleCommand(request, env) {
+  let body;
+  try { body = await request.json(); } catch { return json({ ok: false, error: "invalid json" }, 400); }
+  const token = String(body.token || "");
+  if (!STATS_TOKEN || token !== STATS_TOKEN) return json({ ok: false, error: "unauthorized" }, 401);
+  const installId = String(body.install_id || "").slice(0, 128);
+  const action = String(body.action || "").toLowerCase();
+  if (!installId) return json({ ok: false, error: "install_id required" }, 400);
+  if (action !== "restart") return json({ ok: false, error: "unsupported action" }, 400);
+  await env.TELEMETRY_KV.put(
+    `cmd:${installId}`,
+    JSON.stringify({ action: "restart", at: Math.floor(Date.now() / 1000) }),
+    { expirationTtl: 60 * 60 * 6 }
+  );
+  return json({ ok: true, install_id: installId, action: "restart", msg: "Menunggu ping berikutnya dari app" });
+}
+
 async function handleStats(request, env, url) {
+
   if (!env.TELEMETRY_KV) return json({ ok: false, error: "TELEMETRY_KV missing" }, 500);
   const token = url.searchParams.get("token") || "";
   if (!STATS_TOKEN || token !== STATS_TOKEN) return json({ ok: false, error: "unauthorized" }, 401);
@@ -162,24 +199,28 @@ async function handleStats(request, env, url) {
   };
   const tokenQ = encodeURIComponent(token);
   const tr = rows.map((r, i) => {
-    const setFull = `setLic('${r.install_id}', 'full', 10)`;
-    const setTrial = `setLic('${r.install_id}', 'trial', 1)`;
+    const id = r.install_id;
+    const curMax = Number(r.max_olts) || 5;
     return `<tr>
       <td>${i + 1}</td>
       <td>${esc(r.full_name)}</td>
       <td>${esc(r.company)}</td>
       <td>${esc(r.email)}</td>
       <td>${esc(r.whatsapp)}</td>
-      <td><span class="badge ${r.mode === "full" ? "full" : "trial"}">${esc(r.mode)}</span>
-          <div class="acts">
-            <button onclick="${setFull}">Full 10</button>
-            <button onclick="${setTrial}">Trial</button>
-          </div>
+      <td>
+        <span class="badge ${r.mode === "full" ? "full" : "trial"}">${esc(r.mode)}</span>
+        <div class="acts">
+          <label class="olts-lab">OLT</label>
+          <input type="number" id="max-${esc(id)}" min="5" step="5" value="${curMax >= 5 ? curMax : 5}" class="olts-in">
+          <button type="button" onclick="setLic('${esc(id)}', 'full')">Full</button>
+          <button type="button" onclick="setLic('${esc(id)}', 'trial')">Trial</button>
+          <button type="button" class="btn-restart" onclick="restartApp('${esc(id)}')">Restart app</button>
+        </div>
       </td>
       <td>${esc(String(r.olt_count))} / ${esc(String(r.max_olts))}</td>
       <td>${esc(r.version)}</td>
       <td>${fmt(r.last)}</td>
-      <td class="mono">${esc(String(r.install_id).slice(0, 14))}…</td>
+      <td class="mono" title="${esc(id)}">${esc(String(id).slice(0, 14))}…</td>
     </tr>`;
   }).join("");
 
@@ -200,15 +241,18 @@ th{background:#334155;color:#cbd5e1;white-space:nowrap}
 .badge{padding:2px 8px;border-radius:999px;font-size:.75rem;font-weight:600}
 .badge.full{background:#14532d;color:#86efac}
 .badge.trial{background:#713f12;color:#fde68a}
-.acts button{margin:4px 4px 0 0;font-size:.75rem;padding:2px 8px;border-radius:6px;border:0;cursor:pointer;background:#334155;color:#e2e8f0}
+.acts{display:flex;flex-wrap:wrap;align-items:center;gap:4px;margin-top:6px}
+.acts button{font-size:.75rem;padding:3px 10px;border-radius:6px;border:0;cursor:pointer;background:#334155;color:#e2e8f0}
 .acts button:hover{background:#475569}
+.olts-lab{font-size:.7rem;color:#94a3b8}
+.olts-in{width:64px;padding:3px 6px;border-radius:6px;border:1px solid #475569;background:#0f172a;color:#e2e8f0;font-size:.8rem}
 .mono{font-family:ui-monospace,monospace;font-size:.8rem;color:#94a3b8}
 a{color:#38bdf8}
 #msg{margin:8px 0;color:#86efac}
 </style></head><body>
 <div class="wrap">
 <h1>OLT MONITOR — Pengguna aktif</h1>
-<p class="sub">${days} hari · klik <b>Full 10</b> / <b>Trial</b> untuk ubah license ·
+<p class="sub">${days} hari · atur jumlah OLT lalu klik <b>Full</b> / <b>Trial</b> ·
 <a href="?days=${days}&token=${tokenQ}&format=json">JSON</a></p>
 <div id="msg"></div>
 <div class="stat"><div>Aktif</div><b>${rows.length}</b></div>
@@ -224,8 +268,35 @@ a{color:#38bdf8}
 </div>
 <script>
 const TOKEN = ${JSON.stringify(token)};
-async function setLic(installId, mode, maxOlts) {
+async function restartApp(installId) {
+  if (!confirm('Kirim perintah restart ke app ini?\nApp akan restart saat ping telemetry berikutnya.')) return;
   const msg = document.getElementById('msg');
+  msg.textContent = 'Mengirim perintah restart...';
+  try {
+    const r = await fetch('/v1/command', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: TOKEN, install_id: installId, action: 'restart' })
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || 'gagal');
+    msg.textContent = 'Perintah restart tersimpan untuk ' + installId.slice(0, 12) + '… — menunggu ping app.';
+  } catch (e) {
+    msg.textContent = 'Error: ' + e.message;
+  }
+}
+async function setLic(installId, mode) {
+
+  const msg = document.getElementById('msg');
+  let maxOlts = 1;
+  if (mode === 'full') {
+    const inp = document.getElementById('max-' + installId);
+    maxOlts = parseInt(inp && inp.value ? inp.value : '5', 10) || 5;
+    if (maxOlts < 5) maxOlts = 5;
+    // bulatkan ke kelipatan 5
+    if (maxOlts % 5) maxOlts = Math.ceil(maxOlts / 5) * 5;
+    if (inp) inp.value = maxOlts;
+  }
   msg.textContent = 'Menyimpan...';
   try {
     const r = await fetch('/v1/license', {
@@ -235,8 +306,8 @@ async function setLic(installId, mode, maxOlts) {
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'gagal');
-    msg.textContent = 'OK: ' + installId.slice(0,12) + ' → ' + mode + ' (' + maxOlts + ' OLT). User sync saat ping berikutnya.';
-    setTimeout(() => location.reload(), 800);
+    msg.textContent = 'OK: ' + installId.slice(0,12) + ' → ' + mode.toUpperCase() + ' (max ' + maxOlts + ' OLT). User sync saat ping berikutnya.';
+    setTimeout(() => location.reload(), 900);
   } catch (e) {
     msg.textContent = 'Error: ' + e.message;
   }

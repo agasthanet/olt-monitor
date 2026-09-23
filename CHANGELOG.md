@@ -1,3 +1,8 @@
+## [1.12.2] — 2026-09-23
+
+### Changed
+- Mode **Trial** max **3 OLT** (sebelumnya 1)
+
 ## [1.12.1] — 2026-09-23
 
 ### Added

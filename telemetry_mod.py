@@ -20,6 +20,7 @@ import json
 import platform
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Optional
@@ -113,10 +114,11 @@ def build_payload(
     }
 
 
-def send_ping(payload: dict, endpoint: str, timeout: float = 8.0) -> tuple[bool, str]:
+def send_ping(payload: dict, endpoint: str, timeout: float = 8.0) -> tuple[bool, str, dict]:
+    """Return (ok, msg, response_json)."""
     url = (endpoint or "").strip()
     if not url.startswith("http"):
-        return False, "endpoint tidak valid"
+        return False, "endpoint tidak valid", {}
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -131,14 +133,50 @@ def send_ping(payload: dict, endpoint: str, timeout: float = 8.0) -> tuple[bool,
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             code = getattr(resp, "status", None) or resp.getcode()
-            raw = resp.read()[:500]
+            raw = resp.read()[:4000]
+            data = {}
+            try:
+                data = json.loads(raw.decode("utf-8", errors="ignore") or "{}")
+            except Exception:
+                data = {}
             if 200 <= int(code) < 300:
-                return True, f"HTTP {code}"
-            return False, f"HTTP {code}: {raw!r}"
+                return True, f"HTTP {code}", data if isinstance(data, dict) else {}
+            return False, f"HTTP {code}: {raw[:200]!r}", {}
     except urllib.error.HTTPError as e:
-        return False, f"HTTP {e.code}: {e.reason}"
+        return False, f"HTTP {e.code}: {e.reason}", {}
     except Exception as e:
-        return False, str(e)
+        return False, str(e), {}
+
+
+def _endpoint_base(ping_url: str) -> str:
+    u = (ping_url or "").rstrip("/")
+    if u.endswith("/v1/ping"):
+        return u[: -len("/v1/ping")]
+    if u.endswith("/ping"):
+        return u.rsplit("/", 1)[0]
+    return u
+
+
+def fetch_remote_license(ping_url: str, install_id: str, hwid: str, timeout: float = 8.0) -> dict:
+    """GET /v1/license?install_id=&hwid= → {mode, max_olts} atau {}."""
+    base = _endpoint_base(ping_url)
+    if not base.startswith("http"):
+        return {}
+    q = f"install_id={urllib.parse.quote(install_id or '')}&hwid={urllib.parse.quote(hwid or '')}"
+    url = f"{base}/v1/license?{q}"
+    req = urllib.request.Request(
+        url,
+        method="GET",
+        headers={"Accept": "application/json", "User-Agent": "OLT-MONITOR"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            raw = resp.read()[:2000]
+            data = json.loads(raw.decode("utf-8", errors="ignore") or "{}")
+            return data if isinstance(data, dict) else {}
+    except Exception as e:
+        print(f"[TELEMETRY] fetch license: {e}")
+        return {}
 
 
 def maybe_report(
@@ -194,13 +232,36 @@ def maybe_report(
         company=company or "",
         whatsapp=whatsapp or "",
     )
-    ok, msg = send_ping(payload, endpoint)
+    ok, msg, resp = send_ping(payload, endpoint)
     cfg["last_sent"] = now
     cfg["last_ok"] = ok
     cfg["last_error"] = "" if ok else msg
     save_cfg(cfg)
     print(f"[TELEMETRY] {'OK' if ok else 'FAIL'}: {msg}")
-    return {"skipped": False, "ok": ok, "msg": msg, "payload": payload}
+
+    # Terapkan license remote jika server mengirim
+    lic_info = {}
+    if ok and isinstance(resp, dict):
+        lic_info = resp.get("license") if isinstance(resp.get("license"), dict) else {}
+    if not lic_info:
+        try:
+            lic_info = fetch_remote_license(endpoint, payload.get("install_id") or "", payload.get("hwid") or "")
+            if lic_info.get("license"):
+                lic_info = lic_info["license"]
+        except Exception:
+            lic_info = {}
+    if lic_info and lic_info.get("mode"):
+        try:
+            from license_mod import apply_remote_license
+            apply_remote_license(
+                str(lic_info.get("mode") or "trial"),
+                int(lic_info.get("max_olts") or 1),
+                note="telemetry_sync",
+            )
+        except Exception as e:
+            print(f"[LICENSE] apply remote: {e}")
+
+    return {"skipped": False, "ok": ok, "msg": msg, "payload": payload, "license": lic_info}
 
 
 def set_enabled(enabled: bool, endpoint: Optional[str] = None) -> dict:

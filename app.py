@@ -7,6 +7,7 @@ Dual firmware support + ODP mapping eksternal
 from __future__ import annotations
 
 import csv
+import re
 import io
 import time
 import logging
@@ -18,7 +19,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.11.4"
+APP_VERSION = "1.11.5"
 
 from flask import (
     Flask,
@@ -129,8 +130,7 @@ def _valid_email(email: str) -> bool:
         return False
     if "@" not in email or "." not in email.split("@")[-1]:
         return False
-    import re as _re
-    return bool(_re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", email))
+    return bool(re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", email))
 
 
 def _valid_whatsapp(wa: str) -> bool:

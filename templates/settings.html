@@ -157,6 +157,11 @@
         </form>
         {% else %}
         <p class="small text-muted">Mode Full diatur admin dari server (otomatis sinkron). Key manual opsional.</p>
+        <form method="post" class="mb-2">
+          <input type="hidden" name="action" value="sync_license_now">
+          <button type="submit" class="btn btn-sm btn-outline-info">Sync license dari server</button>
+        </form>
+
         <form method="post">
           <input type="hidden" name="action" value="activate_license">
           <label class="form-label small">License Key</label>

@@ -222,21 +222,14 @@ Setelah update, **restart** `python app.py`.
 
 ---
 
-## Telemetry (opsional)
+## Telemetry
 
-Default **mati**. Di Settings bisa diaktifkan (opt-in).
+App mengirim data agregat otomatis (versi, mode license, jumlah OLT, HWID/install_id, platform).
+Tidak mengirim IP OLT, community, password, serial ONU, atau nama pelanggan.
 
-Data yang dikirim: versi app, mode license, jumlah OLT, HWID/install_id, platform.
-**Tidak** dikirim: IP OLT, community, password, serial ONU, nama pelanggan.
+Nonaktifkan (opsional): set env `TELEMETRY_DISABLED=1`.
+Endpoint: env `TELEMETRY_URL` atau default Cloudflare Worker.
 
-Penerima contoh (server admin):
-
-```bash
-python tools/telemetry_collector.py
-# POST /v1/ping  |  GET /v1/stats?days=30
-```
-
----
 
 ## Troubleshooting
 

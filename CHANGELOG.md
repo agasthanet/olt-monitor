@@ -1,3 +1,16 @@
+## [1.11.3] — 2026-09-23
+
+### Added
+- **Email wajib** setelah login (`/register-email`)
+- Email ikut di telemetry (`email` field) agar admin melihat pengguna
+- Ubah email di Settings
+
+## [1.11.2] — 2026-09-23
+
+### Changed
+- Telemetry **otomatis aktif** (disembunyikan dari Settings)
+- Nonaktif hanya via env `TELEMETRY_DISABLED=1`
+
 ## [1.11.1] — 2026-09-23
 
 ### Fixed

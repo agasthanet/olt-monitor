@@ -20,6 +20,7 @@ from pathlib import Path as _Path
 
 APP_VERSION = "1.11.1"
 
+
 from flask import (
     Flask,
     flash,

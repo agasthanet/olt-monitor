@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.11.3"
+APP_VERSION = "1.11.4"
 
 from flask import (
     Flask,
@@ -129,37 +129,77 @@ def _valid_email(email: str) -> bool:
         return False
     if "@" not in email or "." not in email.split("@")[-1]:
         return False
-    # karakter dasar
     import re as _re
     return bool(_re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", email))
 
 
-def get_registered_email() -> str:
-    """Email registrasi instalasi (wajib)."""
-    try:
-        auth = load_auth()
-        e = (auth.get("email") or "").strip().lower()
-        if e:
-            return e
-        # fallback user pertama
-        for u in auth.get("users") or []:
-            e = (u.get("email") or "").strip().lower()
-            if e:
-                return e
-    except Exception:
-        pass
-    return ""
+def _valid_whatsapp(wa: str) -> bool:
+    d = re.sub(r"\D", "", wa or "")
+    return 8 <= len(d) <= 15
 
 
-def set_registered_email(email: str) -> None:
-    email = (email or "").strip().lower()
+def get_user_profile() -> dict:
+    """Profil registrasi: nama, perusahaan, email, whatsapp."""
     auth = load_auth()
+    prof = auth.get("profile") if isinstance(auth.get("profile"), dict) else {}
+    email = (prof.get("email") or auth.get("email") or "").strip().lower()
+    if not email:
+        for u in auth.get("users") or []:
+            email = (u.get("email") or "").strip().lower()
+            if email:
+                break
+    return {
+        "full_name": (prof.get("full_name") or "").strip(),
+        "company": (prof.get("company") or "").strip(),
+        "email": email,
+        "whatsapp": (prof.get("whatsapp") or "").strip(),
+    }
+
+
+def profile_complete() -> bool:
+    p = get_user_profile()
+    return bool(
+        p.get("full_name")
+        and p.get("company")
+        and _valid_email(p.get("email") or "")
+        and _valid_whatsapp(p.get("whatsapp") or "")
+    )
+
+
+def get_registered_email() -> str:
+    return get_user_profile().get("email") or ""
+
+
+def set_user_profile(full_name: str, company: str, email: str, whatsapp: str) -> None:
+    auth = load_auth()
+    email = (email or "").strip().lower()
     auth["email"] = email
+    auth["profile"] = {
+        "full_name": (full_name or "").strip()[:80],
+        "company": (company or "").strip()[:80],
+        "email": email,
+        "whatsapp": (whatsapp or "").strip()[:32],
+    }
     users = auth.get("users") or []
     if users:
         users[0]["email"] = email
         auth["users"] = users
     save_auth(auth)
+
+
+def set_registered_email(email: str) -> None:
+    p = get_user_profile()
+    set_user_profile(p.get("full_name") or "", p.get("company") or "", email, p.get("whatsapp") or "")
+
+
+def _telemetry_profile_kwargs() -> dict:
+    p = get_user_profile()
+    return {
+        "email": p.get("email") or "",
+        "full_name": p.get("full_name") or "",
+        "company": p.get("company") or "",
+        "whatsapp": p.get("whatsapp") or "",
+    }
 
 
 def login_required(fn):
@@ -185,10 +225,10 @@ def _require_login():
         if request.path.startswith("/api/"):
             return jsonify({"ok": False, "error": "login required"}), 401
         return redirect(url_for("login", next=request.path))
-    # Sudah login: wajib punya email
-    if not get_registered_email():
+    # Sudah login: wajib profil lengkap (nama, perusahaan, email, WA)
+    if not profile_complete():
         if request.path.startswith("/api/"):
-            return jsonify({"ok": False, "error": "email required"}), 403
+            return jsonify({"ok": False, "error": "profile required"}), 403
         return redirect(url_for("register_email"))
     return None
 
@@ -218,15 +258,25 @@ def login():
 def register_email():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
-    current = get_registered_email()
     if request.method == "POST":
+        full_name = (request.form.get("full_name") or "").strip()
+        company = (request.form.get("company") or "").strip()
         email = (request.form.get("email") or "").strip().lower()
-        if not _valid_email(email):
-            flash("Format email tidak valid", "danger")
+        whatsapp = (request.form.get("whatsapp") or "").strip()
+        err = None
+        if len(full_name) < 2:
+            err = "Nama wajib diisi"
+        elif len(company) < 2:
+            err = "Perusahaan wajib diisi"
+        elif not _valid_email(email):
+            err = "Format email tidak valid"
+        elif not _valid_whatsapp(whatsapp):
+            err = "No. WhatsApp tidak valid (8–15 digit)"
+        if err:
+            flash(err, "danger")
         else:
-            set_registered_email(email)
-            flash(f"Email tersimpan: {email}", "success")
-            # kirim telemetry segera dengan email
+            set_user_profile(full_name, company, email, whatsapp)
+            flash("Data tersimpan", "success")
             try:
                 maybe_report(
                     app_version=APP_VERSION,
@@ -235,15 +285,15 @@ def register_email():
                     license_mode=get_mode(),
                     license_max_olts=max_olts(),
                     olt_count=len(config.OLTS or []),
-                    email=email,
                     force=True,
+                    **_telemetry_profile_kwargs(),
                 )
             except Exception as e:
-                print(f"[TELEMETRY] after email: {e}")
+                print(f"[TELEMETRY] after profile: {e}")
             return redirect(url_for("index"))
     return render_template(
         "register_email.html",
-        email=current,
+        profile=get_user_profile(),
         username=session.get("username") or "",
     )
 
@@ -1270,13 +1320,20 @@ def settings():
             return redirect(url_for("settings"))
 
 
-        if action == "save_email":
+        if action == "save_profile":
+            full_name = (request.form.get("full_name") or "").strip()
+            company = (request.form.get("company") or "").strip()
             email = (request.form.get("email") or "").strip().lower()
-            if not _valid_email(email):
+            whatsapp = (request.form.get("whatsapp") or "").strip()
+            if len(full_name) < 2 or len(company) < 2:
+                flash("Nama dan perusahaan wajib diisi", "danger")
+            elif not _valid_email(email):
                 flash("Format email tidak valid", "danger")
+            elif not _valid_whatsapp(whatsapp):
+                flash("No. WhatsApp tidak valid", "danger")
             else:
-                set_registered_email(email)
-                flash(f"Email diperbarui: {email}", "success")
+                set_user_profile(full_name, company, email, whatsapp)
+                flash("Profil disimpan", "success")
                 try:
                     maybe_report(
                         app_version=APP_VERSION,
@@ -1285,8 +1342,8 @@ def settings():
                         license_mode=get_mode(),
                         license_max_olts=max_olts(),
                         olt_count=len(config.OLTS or []),
-                        email=email,
                         force=True,
+                        **_telemetry_profile_kwargs(),
                     )
                 except Exception:
                     pass
@@ -1325,8 +1382,8 @@ def settings():
                 license_mode=get_mode(),
                 license_max_olts=max_olts(),
                 olt_count=len(config.OLTS or []),
-                email=get_registered_email(),
                 force=True,
+                **_telemetry_profile_kwargs(),
             )
             if r.get("skipped"):
                 flash(f"Telemetry dilewati: {r.get('reason')}", "warning")
@@ -1398,7 +1455,7 @@ def settings():
         app_version=APP_VERSION,
         username=session.get("username") or "",
         telemetry=telemetry_load_cfg(),
-        registered_email=get_registered_email(),
+        user_profile=get_user_profile(),
     )
 
 
@@ -1931,8 +1988,8 @@ def _telemetry_boot():
                 license_mode=get_mode(),
                 license_max_olts=max_olts(),
                 olt_count=len(config.OLTS or []),
-                email=get_registered_email(),
                 force=False,
+                **_telemetry_profile_kwargs(),
             )
         except Exception as e:
             print(f"[TELEMETRY] boot: {e}")

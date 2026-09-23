@@ -22,30 +22,151 @@ TRIAL_MAX_OLTS = 1
 DEFAULT_FULL_MAX = 5  # key legacy / fallback
 
 
-def get_hwid() -> str:
-    parts = []
+def _read_machine_id() -> str:
+    """Linux machine-id (bisa sama antar VM yang di-clone)."""
+    for path in ("/etc/machine-id", "/var/lib/dbus/machine-id"):
+        try:
+            p = Path(path)
+            if p.is_file():
+                val = p.read_text(encoding="utf-8", errors="ignore").strip()
+                if val and len(val) >= 8:
+                    return val
+        except Exception:
+            continue
+    return ""
+
+
+def _read_stable_mac() -> str:
+    """MAC dari interface non-virtual (bisa sama di template clone)."""
+    skip_prefix = ("lo", "docker", "veth", "br-", "virbr", "cni", "flannel", "tun", "tap", "wg")
+    base = Path("/sys/class/net")
+    if not base.is_dir():
+        return ""
     try:
-        parts.append(str(uuid.getnode()))
+        names = sorted(p.name for p in base.iterdir() if p.is_dir())
+    except Exception:
+        return ""
+    for name in names:
+        if name == "lo" or name.startswith(skip_prefix):
+            continue
+        try:
+            mac = (base / name / "address").read_text(encoding="utf-8", errors="ignore").strip().lower()
+            if not mac or mac in ("00:00:00:00:00:00", "ff:ff:ff:ff:ff:ff"):
+                continue
+            return mac.replace(":", "")
+        except Exception:
+            continue
+    return ""
+
+
+def _windows_machine_guid() -> str:
+    try:
+        if platform.system() != "Windows":
+            return ""
+        import winreg
+        key = winreg.OpenKey(
+            winreg.HKEY_LOCAL_MACHINE,
+            r"SOFTWARE\Microsoft\Cryptography",
+        )
+        guid, _ = winreg.QueryValueEx(key, "MachineGuid")
+        winreg.CloseKey(key)
+        return str(guid or "")
+    except Exception:
+        return ""
+
+
+def _format_hwid(digest_hex: str) -> str:
+    digest_hex = re.sub(r"[^0-9A-Fa-f]", "", digest_hex).upper()
+    if len(digest_hex) < 16:
+        digest_hex = (digest_hex + "0" * 16)[:16]
+    return "-".join(digest_hex[i : i + 4] for i in range(0, 16, 4))
+
+
+def _get_or_create_install_id() -> str:
+    """
+    ID unik per instalasi app (bukan per hardware template).
+    Disimpan di data/install_id.txt — stabil reboot, beda antar mesin
+    meski VM di-clone (asal folder data/ tidak di-copy).
+    """
+    path = _DATA / "install_id.txt"
+    try:
+        if path.is_file():
+            val = path.read_text(encoding="utf-8", errors="ignore").strip().lower()
+            if re.match(r"^[0-9a-f]{16,64}$", val):
+                return val
     except Exception:
         pass
-    parts.append(platform.node() or "")
-    parts.append(platform.system() or "")
-    parts.append(platform.machine() or "")
+    import secrets
+    val = secrets.token_hex(16)
     try:
-        if platform.system() == "Windows":
-            import winreg
-            key = winreg.OpenKey(
-                winreg.HKEY_LOCAL_MACHINE,
-                r"SOFTWARE\Microsoft\Cryptography",
-            )
-            guid, _ = winreg.QueryValueEx(key, "MachineGuid")
-            winreg.CloseKey(key)
-            parts.append(str(guid))
-    except Exception:
-        pass
+        _DATA.mkdir(parents=True, exist_ok=True)
+        path.write_text(val + "\n", encoding="utf-8")
+    except Exception as e:
+        print(f"[LICENSE] gagal simpan install_id: {e}")
+    return val
+
+
+def _compute_hwid_raw() -> str:
+    """
+    Campur:
+    - install_id (unik per install — cegah kembar antar mesin clone)
+    - machine-id / MachineGuid / MAC (ikatan mesin)
+    - hostname + arch
+    """
+    parts = [
+        "iid:" + _get_or_create_install_id(),
+        "host:" + (platform.node() or ""),
+        "sys:" + (platform.system() or ""),
+        "arch:" + (platform.machine() or ""),
+    ]
+    win = _windows_machine_guid()
+    if win:
+        parts.append("win:" + win)
+    mid = _read_machine_id()
+    if mid:
+        parts.append("mid:" + mid)
+    mac = _read_stable_mac()
+    if mac:
+        parts.append("mac:" + mac)
     raw = "|".join(parts)
-    digest = hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest().upper()
-    return "-".join(digest[i : i + 4] for i in range(0, 16, 4))
+    return hashlib.sha256(raw.encode("utf-8", errors="ignore")).hexdigest().upper()
+
+
+def get_hwid() -> str:
+    """
+    HWID stabil antar reboot, unik per instalasi.
+    Freeze di data/machine_hwid.txt setelah dihitung sekali.
+    Jangan copy folder data/ antar server — ikut ke-copy HWID + license.
+    """
+    freeze = _DATA / "machine_hwid.txt"
+    try:
+        if freeze.is_file():
+            saved = freeze.read_text(encoding="utf-8", errors="ignore").strip().upper()
+            if re.match(r"^[0-9A-F]{4}(-[0-9A-F]{4}){3}$", saved):
+                return saved
+            norm = _normalize_hwid(saved)
+            if len(norm) >= 16:
+                return _format_hwid(norm)
+    except Exception:
+        pass
+
+    hwid = _format_hwid(_compute_hwid_raw())
+    try:
+        _DATA.mkdir(parents=True, exist_ok=True)
+        freeze.write_text(hwid + "\n", encoding="utf-8")
+    except Exception as e:
+        print(f"[LICENSE] gagal simpan machine_hwid: {e}")
+    return hwid
+
+
+def reset_hwid() -> str:
+    """Hapus freeze + install_id, buat HWID baru (untuk migrasi / bentrok)."""
+    for name in ("machine_hwid.txt", "install_id.txt"):
+        try:
+            (_DATA / name).unlink(missing_ok=True)
+        except Exception:
+            pass
+    return get_hwid()
 
 
 def _normalize_hwid(hwid: str) -> str:

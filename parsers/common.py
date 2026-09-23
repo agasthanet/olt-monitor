@@ -792,22 +792,33 @@ def convert_tx_power(raw) -> Optional[float]:
 
 
 
-def prefer_ont_name(name, description="") -> str:
-    """Pilih label tampilan: prioritaskan description jika name generik ONU-x:y."""
-    n = snmp_text(name)
-    d = snmp_text(description)
-    generic = False
+def is_blank_ont_name(name) -> bool:
+    """True jika nama kosong / NA / generik ONU-x:y."""
+    n = snmp_text(name).strip()
     if not n:
-        generic = True
-    elif re.match(r"^ONU[-_]?\d+[:./]\d+$", n, re.I):
-        generic = True
-    elif re.match(r"^ONU\d+$", n, re.I):
-        generic = True
-    elif n.upper() in ("NA", "N/A", "NULL", "-"):
-        generic = True
-    if generic and d and d.upper() not in ("NA", "N/A", "NULL", "-"):
+        return True
+    u = n.upper()
+    if u in ("NA", "N/A", "NULL", "-", "NONE", "UNKNOWN"):
+        return True
+    if re.match(r"^ONU[-_]?\d+[:./]\d+$", n, re.I):
+        return True
+    if re.match(r"^ONU\d+$", n, re.I):
+        return True
+    return False
+
+
+def prefer_ont_name(name, description="", fallback="") -> str:
+    """Pilih label: name bagus > description > fallback (nama cache sebelumnya)."""
+    n = snmp_text(name).strip()
+    d = snmp_text(description).strip()
+    f = snmp_text(fallback).strip()
+    if not is_blank_ont_name(n):
+        return n
+    if not is_blank_ont_name(d):
         return d
-    return n or d or ""
+    if not is_blank_ont_name(f):
+        return f
+    return n or d or f or "NA"
 
 
 def snmp_text(val) -> str:

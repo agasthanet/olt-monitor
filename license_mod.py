@@ -1,5 +1,5 @@
 """
-License: Trial (max 1 OLT) vs Full (kelipatan 5 OLT: 5/10/15/..., key + HWID).
+License: Trial (max 3 OLT) vs Full (kelipatan 5 OLT: 5/10/15/..., key + HWID).
 Format key: FULL-05-XXXXX-XXXXX-XXXXX-XXXXX  (05 = limit OLT)
 Key lama FULL-XXXXX-... (tanpa angka) dihitung max 5 OLT.
 """
@@ -18,7 +18,7 @@ _SECRET = b"OLT-MONITOR-xAI-2026-CyberPlus-HWID-KEY"
 _DATA = Path(__file__).resolve().parent / "data"
 _LICENSE_FILE = _DATA / "license.json"
 
-TRIAL_MAX_OLTS = 1
+TRIAL_MAX_OLTS = 3
 DEFAULT_FULL_MAX = 5  # key legacy / fallback
 
 
@@ -343,7 +343,7 @@ def can_add_olt(current_count: int) -> tuple[bool, str]:
         if get_mode() == "trial":
             return (
                 False,
-                "Mode Trial max 1 OLT. Aktivasi Full (kelipatan 5 OLT) dengan license key.",
+                "Mode Trial max 3 OLT. Aktivasi Full (kelipatan 5 OLT) dengan license key.",
             )
         return (
             False,

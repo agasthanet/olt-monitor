@@ -1,3 +1,34 @@
+## [1.11.1] — 2026-09-23
+
+### Fixed
+- Nama ONT **kadang NA**: jangan timpa nama bagus dengan NA saat refresh SNMP tidak lengkap; pulihkan dari cache/history
+
+## [1.11.0] — 2026-09-22
+
+### Added
+- **Telemetry opt-in** (default off) di Settings
+- Payload: version, license mode, olt_count, HWID/install_id, platform — tanpa data OLT/pelanggan
+- `tools/telemetry_collector.py` contoh penerima + `/v1/stats`
+
+## [1.10.6] — 2026-09-21
+
+### Added
+- **Waktu sistem (server)** di navbar, update tiap detik
+
+## [1.10.4] — 2026-09-21
+
+### Fixed
+- HWID **kembar antar mesin** (VM/container clone): ditambah `install_id` unik per instalasi
+- Tombol **Reset HWID** di Settings jika masih bentrok
+- Jangan copy folder `data/` antar server
+
+## [1.10.3] — 2026-09-21
+
+### Fixed
+- **HWID berubah setelah reboot**: tidak lagi mengandalkan `uuid.getnode()` (MAC random).
+  Pakai `/etc/machine-id` + MAC stabil, lalu di-freeze di `data/machine_hwid.txt`.
+- Setelah update ini HWID bisa beda sekali → **aktifkan ulang license key** (keygen pakai HWID baru).
+
 ## [1.10.2] — 2026-09-21
 
 ### Fixed

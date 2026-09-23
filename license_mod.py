@@ -268,10 +268,53 @@ def save_license(data: dict) -> None:
     _LICENSE_FILE.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
 
 
+
+def apply_remote_license(mode: str, max_olts: int = 5, note: str = "") -> None:
+    """Terapkan license dari server telemetry (tanpa keygen)."""
+    from datetime import datetime
+    mode = (mode or "trial").strip().lower()
+    if mode not in ("trial", "full"):
+        mode = "trial"
+    try:
+        n = int(max_olts)
+    except Exception:
+        n = TRIAL_MAX_OLTS if mode == "trial" else DEFAULT_FULL_MAX
+    if mode == "trial":
+        n = TRIAL_MAX_OLTS
+    else:
+        n = normalize_limit(n) if n >= 5 else DEFAULT_FULL_MAX
+    lic = load_license()
+    lic["mode"] = mode
+    lic["max_olts"] = n
+    lic["source"] = "remote"
+    lic["key"] = lic.get("key") or ""  # key lokal opsional
+    lic["remote_synced_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    if note:
+        lic["remote_note"] = str(note)[:120]
+    if mode == "full" and not lic.get("activated_at"):
+        lic["activated_at"] = lic["remote_synced_at"]
+    if mode == "trial":
+        lic["activated_at"] = ""
+    save_license(lic)
+    print(f"[LICENSE] remote → {mode} max_olts={n}")
+
+
+def clear_remote_to_trial() -> None:
+    apply_remote_license("trial", TRIAL_MAX_OLTS, note="server_trial")
+
+
 def get_mode() -> str:
     lic = load_license()
+    # Prioritas: grant dari server telemetry
+    if (lic.get("source") or "") == "remote":
+        if (lic.get("mode") or "").lower() == "full":
+            return "full"
+        return "trial"
     key = (lic.get("key") or "").strip()
     if key and validate_key(key):
+        return "full"
+    if (lic.get("mode") or "").lower() == "full" and lic.get("max_olts"):
+        # legacy / remote tersimpan
         return "full"
     return "trial"
 
@@ -280,13 +323,14 @@ def max_olts() -> int:
     if get_mode() != "full":
         return TRIAL_MAX_OLTS
     lic = load_license()
-    # prefer stored limit, else parse from key
     stored = lic.get("max_olts")
     try:
         if stored is not None and int(stored) > 1:
             return normalize_limit(int(stored))
     except Exception:
         pass
+    if (lic.get("source") or "") == "remote":
+        return DEFAULT_FULL_MAX
     key = (lic.get("key") or "").strip()
     if key:
         return key_limit(key)

@@ -82,7 +82,7 @@ async function handlePing(request, env) {
     await env.TELEMETRY_KV.put("index:installs", JSON.stringify(ids));
   }
 
-  const lic = (await getLicense(env, installId)) || { mode: "trial", max_olts: 1 };
+  const lic = (await getLicense(env, installId)) || { mode: "trial", max_olts: 3 };
   const commands = [];
   try {
     const cmdRaw = await env.TELEMETRY_KV.get(`cmd:${installId}`);
@@ -104,8 +104,8 @@ async function handlePing(request, env) {
 
 async function handleLicenseGet(url, env) {
   const installId = url.searchParams.get("install_id") || "";
-  const lic = (await getLicense(env, installId)) || { mode: "trial", max_olts: 1 };
-  return json({ ok: true, license: { mode: lic.mode || "trial", max_olts: Number(lic.max_olts) || 1 } });
+  const lic = (await getLicense(env, installId)) || { mode: "trial", max_olts: 3 };
+  return json({ ok: true, license: { mode: lic.mode || "trial", max_olts: Number(lic.max_olts) || (lic.mode === "full" ? 5 : 3) } });
 }
 
 async function handleLicenseSet(request, env) {
@@ -118,7 +118,7 @@ async function handleLicenseSet(request, env) {
   let mode = String(body.mode || "trial").toLowerCase();
   if (mode !== "full") mode = "trial";
   let maxOlts = parseInt(body.max_olts || (mode === "full" ? 5 : 1), 10);
-  if (mode === "trial") maxOlts = 1;
+  if (mode === "trial") maxOlts = 3;
   else {
     if (maxOlts < 5) maxOlts = 5;
     if (maxOlts % 5) maxOlts = Math.ceil(maxOlts / 5) * 5;
@@ -288,7 +288,7 @@ async function restartApp(installId) {
 async function setLic(installId, mode) {
 
   const msg = document.getElementById('msg');
-  let maxOlts = 1;
+  let maxOlts = 3;
   if (mode === 'full') {
     const inp = document.getElementById('max-' + installId);
     maxOlts = parseInt(inp && inp.value ? inp.value : '5', 10) || 5;

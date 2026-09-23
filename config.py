@@ -58,3 +58,6 @@ def get_olt(olt_id: str):
         if str(o.get("id")) == str(olt_id):
             return o
     return OLTS[0] if OLTS else None
+
+# Telemetry opt-in (default off). Endpoint bisa diubah di Settings / env.
+TELEMETRY_URL = os.getenv("TELEMETRY_URL", "").strip()

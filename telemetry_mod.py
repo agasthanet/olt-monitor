@@ -34,7 +34,7 @@ DEFAULT_ENDPOINT = "https://olt-monitor-telemetry.agastha-net.workers.dev/v1/pin
 _DEFAULT_CFG = {
     "enabled": True,
     "endpoint": DEFAULT_ENDPOINT,
-    "interval_hours": 1,
+    "interval_hours": 0.25,
     "last_sent": None,
     "last_ok": None,
     "last_error": "",
@@ -208,6 +208,34 @@ def schedule_app_restart(delay_sec: float = 2.0) -> None:
     print(f"[TELEMETRY] restart dijadwalkan dalam {delay_sec}s")
 
 
+
+def sync_remote_license(endpoint: str, install_id: str, hwid: str) -> dict:
+    """Ambil grant license dari server dan terapkan (tanpa kirim ping penuh)."""
+    lic_info = {}
+    try:
+        data = fetch_remote_license(endpoint, install_id or "", hwid or "")
+        if isinstance(data, dict):
+            if isinstance(data.get("license"), dict):
+                lic_info = data["license"]
+            elif data.get("mode"):
+                lic_info = data
+    except Exception as e:
+        print(f"[LICENSE] fetch: {e}")
+        return {}
+    if lic_info and lic_info.get("mode"):
+        try:
+            from license_mod import apply_remote_license, get_mode, max_olts
+            apply_remote_license(
+                str(lic_info.get("mode") or "trial"),
+                int(lic_info.get("max_olts") or 1),
+                note="remote_sync",
+            )
+            print(f"[LICENSE] sync OK → mode={get_mode()} max_olts={max_olts()}")
+        except Exception as e:
+            print(f"[LICENSE] apply: {e}")
+    return lic_info
+
+
 def maybe_report(
     *,
     app_version: str,
@@ -234,7 +262,7 @@ def maybe_report(
         return {"skipped": True, "reason": "disabled (aktifkan dulu di Settings)"}
 
     endpoint = (cfg.get("endpoint") or DEFAULT_ENDPOINT).strip()
-    interval_h = max(1, int(cfg.get("interval_hours") or 24))
+    interval_h = max(0.1, float(cfg.get("interval_hours") or 0.25))
     now = time.time()
     last = cfg.get("last_sent")
     try:
@@ -243,10 +271,12 @@ def maybe_report(
         last_ts = 0.0
 
     if not force and last_ts and (now - last_ts) < interval_h * 3600:
+        lic_info = sync_remote_license(endpoint, install_id or "", hwid or "")
         return {
             "skipped": True,
             "reason": "interval",
             "next_in_sec": int(interval_h * 3600 - (now - last_ts)),
+            "license": lic_info,
         }
 
     payload = build_payload(
@@ -281,12 +311,13 @@ def maybe_report(
             lic_info = {}
     if lic_info and lic_info.get("mode"):
         try:
-            from license_mod import apply_remote_license
+            from license_mod import apply_remote_license, get_mode, max_olts
             apply_remote_license(
                 str(lic_info.get("mode") or "trial"),
                 int(lic_info.get("max_olts") or 1),
                 note="telemetry_sync",
             )
+            print(f"[LICENSE] applied remote → mode={get_mode()} max_olts={max_olts()} raw={lic_info}")
         except Exception as e:
             print(f"[LICENSE] apply remote: {e}")
 

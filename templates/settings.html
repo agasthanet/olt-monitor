@@ -168,42 +168,17 @@
     </div>
 
     
-    
     <div class="card shadow-sm mt-3">
       <div class="card-header bg-white">
-        <h6 class="mb-0"><i class="bi bi-broadcast"></i> Telemetry (opsional)</h6>
+        <h6 class="mb-0"><i class="bi bi-envelope"></i> Email registrasi</h6>
       </div>
       <div class="card-body">
-        <p class="small text-muted">
-          <strong>Default: nonaktif.</strong> Jika diaktifkan, app mengirim data agregat
-          (versi, mode license, jumlah OLT, HWID/install_id, platform) ke server statistik.
-          <em>Tidak mengirim</em> IP OLT, community, password, serial ONU, atau nama pelanggan.
-        </p>
-        <form method="post" class="mb-2">
-          <input type="hidden" name="action" value="save_telemetry">
-          <div class="form-check mb-2">
-            <input class="form-check-input" type="checkbox" name="telemetry_enabled" value="1" id="telEn"
-              {% if telemetry and telemetry.enabled %}checked{% endif %}>
-            <label class="form-check-label" for="telEn">Aktifkan telemetry (opt-in)</label>
-          </div>
-          <label class="form-label small">Endpoint</label>
-          <input type="url" name="telemetry_endpoint" class="form-control form-control-sm mb-2"
-                 value="{{ (telemetry.endpoint if telemetry else '') or '' }}"
-                 placeholder="https://.../v1/ping">
-          <button type="submit" class="btn btn-sm btn-primary">Simpan</button>
-        </form>
-        {% if telemetry and telemetry.last_sent %}
-        <p class="small text-muted mb-1">
-          Kirim terakhir:
-          {% if telemetry.last_ok %}<span class="text-success">OK</span>{% else %}<span class="text-danger">gagal</span>{% endif %}
-          {% if telemetry.last_error %} — {{ telemetry.last_error }}{% endif %}
-        </p>
-        {% endif %}
+        <p class="small text-muted">Email wajib. Ikut dikirim di telemetry (identitas instalasi).</p>
         <form method="post">
-          <input type="hidden" name="action" value="telemetry_ping">
-          <button type="submit" class="btn btn-sm btn-outline-secondary" {% if not (telemetry and telemetry.enabled) %}disabled{% endif %}>
-            Kirim test sekarang
-          </button>
+          <input type="hidden" name="action" value="save_email">
+          <input type="email" name="email" class="form-control form-control-sm mb-2"
+                 value="{{ registered_email or '' }}" required placeholder="nama@domain.com">
+          <button type="submit" class="btn btn-sm btn-outline-primary">Simpan email</button>
         </form>
       </div>
     </div>

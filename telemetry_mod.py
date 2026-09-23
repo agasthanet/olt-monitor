@@ -34,7 +34,7 @@ DEFAULT_ENDPOINT = "https://olt-monitor-telemetry.agastha-net.workers.dev/v1/pin
 _DEFAULT_CFG = {
     "enabled": True,
     "endpoint": DEFAULT_ENDPOINT,
-    "interval_hours": 24,
+    "interval_hours": 1,
     "last_sent": None,
     "last_ok": None,
     "last_error": "",
@@ -179,6 +179,35 @@ def fetch_remote_license(ping_url: str, install_id: str, hwid: str, timeout: flo
         return {}
 
 
+
+def schedule_app_restart(delay_sec: float = 2.0) -> None:
+    """Restart proses app (agar run-bg/systemd / loop menghidupkan lagi)."""
+    import os, sys, threading, time as _time
+
+    def _do():
+        _time.sleep(max(0.5, float(delay_sec)))
+        print("[TELEMETRY] remote command: restart app")
+        # flag file untuk supervisor opsional
+        try:
+            flag = _DATA / "restart_requested"
+            flag.write_text(str(int(_time.time())), encoding="utf-8")
+        except Exception:
+            pass
+        # ganti proses dengan python app.py yang sama
+        try:
+            app_py = Path(__file__).resolve().parent / "app.py"
+            if app_py.is_file():
+                os.chdir(str(app_py.parent))
+                os.execv(sys.executable, [sys.executable, str(app_py)])
+        except Exception as e:
+            print(f"[TELEMETRY] exec restart gagal: {e}")
+        # fallback
+        os._exit(0)
+
+    threading.Thread(target=_do, name="remote-restart", daemon=True).start()
+    print(f"[TELEMETRY] restart dijadwalkan dalam {delay_sec}s")
+
+
 def maybe_report(
     *,
     app_version: str,
@@ -261,7 +290,21 @@ def maybe_report(
         except Exception as e:
             print(f"[LICENSE] apply remote: {e}")
 
-    return {"skipped": False, "ok": ok, "msg": msg, "payload": payload, "license": lic_info}
+    # Perintah remote dari server (restart app, dll)
+    cmds = []
+    if ok and isinstance(resp, dict):
+        c = resp.get("commands")
+        if isinstance(c, list):
+            cmds = c
+        elif isinstance(c, str) and c:
+            cmds = [c]
+    if "restart" in [str(x).lower() for x in cmds]:
+        try:
+            schedule_app_restart()
+        except Exception as e:
+            print(f"[TELEMETRY] schedule restart: {e}")
+
+    return {"skipped": False, "ok": ok, "msg": msg, "payload": payload, "license": lic_info, "commands": cmds}
 
 
 def set_enabled(enabled: bool, endpoint: Optional[str] = None) -> dict:

@@ -58,6 +58,7 @@ def stats():
                         "version": body.get("version"),
                         "mode": body.get("license_mode"),
                         "olt_count": body.get("olt_count"),
+                        "email": body.get("email"),
                     }
             except Exception:
                 continue

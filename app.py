@@ -18,7 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.10.2"
+APP_VERSION = "1.11.1"
 
 from flask import (
     Flask,
@@ -38,11 +38,13 @@ from werkzeug.security import check_password_hash, generate_password_hash
 import config
 from odp_mapping import apply_odp_to_onts, load_odp_mapping, save_odp_mapping
 from snmp_zte import OnuInfo, fetch_all_onts, restart_ont_snmp, parse_serial, prefer_ont_name
+from parsers.common import is_blank_ont_name
 from cli_hsairpo import restart_onu_hsairpo_cli, fetch_hsairpo_cli
 from cli_hioso import restart_onu_hioso_cli
 from cli_hioso import fetch_hioso_cli
 from olt_health import refresh_health, get_cached_health
 from ping_mod import record_ping, get_last, get_history, get_all_last, ping_all_olts
+from telemetry_mod import load_cfg as telemetry_load_cfg, set_enabled as telemetry_set_enabled, maybe_report
 from license_mod import (
     get_hwid,
     get_mode,
@@ -51,7 +53,10 @@ from license_mod import (
     activate as license_activate,
     deactivate as license_deactivate,
     load_license,
+    reset_hwid as license_reset_hwid,
 )
+from license_mod import _get_or_create_install_id
+
 
 def active_olts():
     """OLT yang boleh dipakai sesuai license (Trial=1, Full=N). Sisanya diabaikan."""
@@ -170,6 +175,17 @@ def logout():
     return redirect(url_for("login"))
 
 
+@app.context_processor
+def inject_globals():
+    """Waktu server untuk UI."""
+    return {
+        "server_now": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "server_ts": int(time.time()),
+    }
+
+
+
+
 
 # Cache memory + file (supaya filter tetap cepat walau Flask reload)
 _cache = {"onts": [], "last_update": None, "firmware": None}
@@ -284,6 +300,16 @@ def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
         rx_history = list(prev.get("rx_history") or [])
         down_logs = list(prev.get("down_logs") or [])
 
+        # Pertahankan nama bagus jika SNMP kali ini mengembalikan NA/kosong
+        prev_name = (prev.get("name") or "").strip()
+        if is_blank_ont_name(o.name) and not is_blank_ont_name(prev_name):
+            o.name = prev_name
+            if is_blank_ont_name(o.description):
+                o.description = prev_name
+        elif not is_blank_ont_name(o.name):
+            # normalisasi via prefer
+            o.name = prefer_ont_name(o.name, o.description or "", prev_name)
+
         if cur_online:
             last_online = now_str
             if o.rx_power is not None:
@@ -317,6 +343,7 @@ def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
         o.last_downtime = last_downtime if not cur_online else (last_downtime or "")
         o.last_rx_power = last_rx
 
+        save_name = o.name if not is_blank_ont_name(o.name) else (prev_name or o.name)
         hist[key] = {
             "status": o.status,
             "last_online": o.last_online,
@@ -324,7 +351,7 @@ def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
             "last_rx_power": last_rx,
             "rx_history": rx_history,
             "down_logs": down_logs,
-            "name": o.name,
+            "name": save_name,
             "updated": now_str,
         }
 
@@ -499,6 +526,18 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
 
     # Merge ke cache: ganti data OLT yang di-refresh, pertahankan OLT lain
     refreshed_ids = {str(o.get("id")) for o in targets if o}
+    # Simpan nama bagus OLT yang di-refresh (sebelum diganti) agar NA tidak menimpa
+    _prev_names_serial = {}
+    _prev_names_loc = {}
+    for o in (_cache["onts"] or []):
+        if (o.olt_id or "") not in refreshed_ids:
+            continue
+        if is_blank_ont_name(o.name):
+            continue
+        s = (o.serial or "").strip().upper()
+        if s:
+            _prev_names_serial[s] = o.name
+        _prev_names_loc[f"{o.olt_id}:{o.board}/{o.pon}:{o.onu_id}"] = o.name
     # buang ONT tanpa olt_id (orphan cache lama yang bikin total ngaco)
     old = [
         o for o in (_cache["onts"] or [])
@@ -519,6 +558,19 @@ def get_onts(force: bool = False, olt_id: str = None, filter_pon: str = None) ->
             _cache["onts"] = old + fetched_all
     else:
         _cache["onts"] = old + fetched_all
+
+    # Restore nama jika hasil SNMP NA
+    for o in _cache["onts"]:
+        if (o.olt_id or "") not in refreshed_ids:
+            continue
+        if not is_blank_ont_name(o.name):
+            continue
+        s = (o.serial or "").strip().upper()
+        better = _prev_names_serial.get(s) or _prev_names_loc.get(
+            f"{o.olt_id}:{o.board}/{o.pon}:{o.onu_id}"
+        )
+        if better:
+            o.name = better
 
     _cache["last_update"] = time.time()
     _save_file_cache()
@@ -1138,6 +1190,54 @@ def settings():
             return redirect(url_for("settings"))
 
 
+        if action == "save_telemetry":
+            en = request.form.get("telemetry_enabled") == "1"
+            ep = (request.form.get("telemetry_endpoint") or "").strip()
+            telemetry_set_enabled(en, ep or None)
+            flash("Pengaturan telemetry disimpan" + (" (aktif)" if en else " (nonaktif)"), "success")
+            if en:
+                # kirim sekali segera
+                try:
+                    r = maybe_report(
+                        app_version=APP_VERSION,
+                        install_id=_get_or_create_install_id(),
+                        hwid=get_hwid(),
+                        license_mode=get_mode(),
+                        license_max_olts=max_olts(),
+                        olt_count=len(config.OLTS or []),
+                        force=True,
+                    )
+                    if r.get("ok"):
+                        flash("Telemetry test kirim: OK", "success")
+                    elif not r.get("skipped"):
+                        flash(f"Telemetry test gagal: {r.get('msg')}", "warning")
+                except Exception as e:
+                    flash(f"Telemetry test error: {e}", "warning")
+            return redirect(url_for("settings"))
+
+        if action == "telemetry_ping":
+            r = maybe_report(
+                app_version=APP_VERSION,
+                install_id=_get_or_create_install_id(),
+                hwid=get_hwid(),
+                license_mode=get_mode(),
+                license_max_olts=max_olts(),
+                olt_count=len(config.OLTS or []),
+                force=True,
+            )
+            if r.get("skipped"):
+                flash(f"Telemetry dilewati: {r.get('reason')}", "warning")
+            elif r.get("ok"):
+                flash("Telemetry terkirim OK", "success")
+            else:
+                flash(f"Telemetry gagal: {r.get('msg')}", "danger")
+            return redirect(url_for("settings"))
+
+        if action == "reset_hwid":
+            new_h = license_reset_hwid()
+            flash(f"HWID direset. HWID baru: {new_h} — generate & aktifkan key ulang.", "warning")
+            return redirect(url_for("settings"))
+
         if action == "change_password":
             cur = request.form.get("current_password") or ""
             new1 = request.form.get("new_password") or ""
@@ -1194,6 +1294,7 @@ def settings():
         license_max_olts=max_olts(),
         app_version=APP_VERSION,
         username=session.get("username") or "",
+        telemetry=telemetry_load_cfg(),
     )
 
 
@@ -1713,11 +1814,35 @@ def start_background_refresh():
         print(f"[PING] start error: {e}")
 
 
+def _telemetry_boot():
+    """Kirim ping opt-in saat start (non-blocking)."""
+    def _run():
+        import time as _t
+        _t.sleep(20)
+        try:
+            maybe_report(
+                app_version=APP_VERSION,
+                install_id=_get_or_create_install_id(),
+                hwid=get_hwid(),
+                license_mode=get_mode(),
+                license_max_olts=max_olts(),
+                olt_count=len(config.OLTS or []),
+                force=False,
+            )
+        except Exception as e:
+            print(f"[TELEMETRY] boot: {e}")
+    threading.Thread(target=_run, name="telemetry-boot", daemon=True).start()
+
+
 # start saat module load (setelah Flask app siap)
 try:
     start_background_refresh()
 except Exception as e:
     print(f"[BG] start error: {e}")
+try:
+    _telemetry_boot()
+except Exception as e:
+    print(f"[TELEMETRY] start error: {e}")
 
 
 

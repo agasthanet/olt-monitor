@@ -104,8 +104,22 @@ async function handlePing(request, env) {
 
 async function handleLicenseGet(url, env) {
   const installId = url.searchParams.get("install_id") || "";
-  const lic = (await getLicense(env, installId)) || { mode: "trial", max_olts: 3 };
-  return json({ ok: true, license: { mode: lic.mode || "trial", max_olts: Number(lic.max_olts) || (lic.mode === "full" ? 5 : 3) } });
+  const hwid = url.searchParams.get("hwid") || "";
+  let lic = await getLicense(env, installId);
+  if (!lic && hwid) {
+    try {
+      const raw = await env.TELEMETRY_KV.get(`license:hwid:${hwid}`);
+      if (raw) lic = JSON.parse(raw);
+    } catch {}
+  }
+  if (!lic) lic = { mode: "trial", max_olts: 3 };
+  return json({
+    ok: true,
+    license: {
+      mode: lic.mode || "trial",
+      max_olts: Number(lic.max_olts) || ((lic.mode || "trial") === "full" ? 5 : 3),
+    },
+  });
 }
 
 async function handleLicenseSet(request, env) {
@@ -123,8 +137,22 @@ async function handleLicenseSet(request, env) {
     if (maxOlts < 5) maxOlts = 5;
     if (maxOlts % 5) maxOlts = Math.ceil(maxOlts / 5) * 5;
   }
-  const rec = { mode, max_olts: maxOlts, updated_at: Math.floor(Date.now() / 1000) };
+  const rec = { mode, max_olts: maxOlts, updated_at: Math.floor(Date.now() / 1000), install_id: installId };
   await env.TELEMETRY_KV.put(`license:${installId}`, JSON.stringify(rec));
+  const hwid = String(body.hwid || "").slice(0, 64);
+  if (hwid) {
+    await env.TELEMETRY_KV.put(`license:hwid:${hwid}`, JSON.stringify(rec));
+  }
+  // Also map from install record hwid if present
+  try {
+    const inst = await env.TELEMETRY_KV.get(`install:${installId}`);
+    if (inst) {
+      const row = JSON.parse(inst);
+      if (row.hwid) {
+        await env.TELEMETRY_KV.put(`license:hwid:${row.hwid}`, JSON.stringify(rec));
+      }
+    }
+  } catch {}
   return json({ ok: true, install_id: installId, license: rec });
 }
 
@@ -182,6 +210,7 @@ async function handleStats(request, env, url) {
         full_name: row.full_name || "",
         company: row.company || "",
         whatsapp: row.whatsapp || "",
+        hwid: row.hwid || "",
       });
     } catch {}
   }
@@ -212,15 +241,16 @@ async function handleStats(request, env, url) {
         <div class="acts">
           <label class="olts-lab">OLT</label>
           <input type="number" id="max-${esc(id)}" min="5" step="5" value="${curMax >= 5 ? curMax : 5}" class="olts-in">
-          <button type="button" onclick="setLic('${esc(id)}', 'full')">Full</button>
-          <button type="button" onclick="setLic('${esc(id)}', 'trial')">Trial</button>
+          <button type="button" onclick="setLic('${esc(id)}', 'full', '${esc(r.hwid || '')}')">Full</button>
+          <button type="button" onclick="setLic('${esc(id)}', 'trial', '${esc(r.hwid || '')}')">Trial</button>
           <button type="button" class="btn-restart" onclick="restartApp('${esc(id)}')">Restart app</button>
         </div>
       </td>
       <td>${esc(String(r.olt_count))} / ${esc(String(r.max_olts))}</td>
       <td>${esc(r.version)}</td>
       <td>${fmt(r.last)}</td>
-      <td class="mono" title="${esc(id)}">${esc(String(id).slice(0, 14))}…</td>
+      <td class="mono" title="${esc(r.hwid || '')}">${esc((r.hwid || "-").toString().slice(0, 19))}</td>
+      <td class="mono" title="${esc(id)}">${esc(String(id).slice(0, 12))}…</td>
     </tr>`;
   }).join("");
 
@@ -261,9 +291,9 @@ a{color:#38bdf8}
 <table>
 <thead><tr>
 <th>#</th><th>Nama</th><th>Perusahaan</th><th>Email</th><th>WA</th>
-<th>License</th><th>OLT</th><th>Versi</th><th>Terakhir</th><th>Install</th>
+<th>License</th><th>OLT</th><th>Versi</th><th>Terakhir</th><th>HWID</th><th>Install</th>
 </tr></thead>
-<tbody>${tr || '<tr><td colspan="10">Belum ada data</td></tr>'}</tbody>
+<tbody>${tr || '<tr><td colspan="11">Belum ada data</td></tr>'}</tbody>
 </table>
 </div>
 <script>
@@ -285,15 +315,13 @@ async function restartApp(installId) {
     msg.textContent = 'Error: ' + e.message;
   }
 }
-async function setLic(installId, mode) {
-
+async function setLic(installId, mode, hwid) {
   const msg = document.getElementById('msg');
   let maxOlts = 3;
   if (mode === 'full') {
     const inp = document.getElementById('max-' + installId);
     maxOlts = parseInt(inp && inp.value ? inp.value : '5', 10) || 5;
     if (maxOlts < 5) maxOlts = 5;
-    // bulatkan ke kelipatan 5
     if (maxOlts % 5) maxOlts = Math.ceil(maxOlts / 5) * 5;
     if (inp) inp.value = maxOlts;
   }
@@ -302,7 +330,7 @@ async function setLic(installId, mode) {
     const r = await fetch('/v1/license', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: TOKEN, install_id: installId, mode, max_olts: maxOlts })
+      body: JSON.stringify({ token: TOKEN, install_id: installId, mode, max_olts: maxOlts, hwid: hwid || '' })
     });
     const j = await r.json();
     if (!j.ok) throw new Error(j.error || 'gagal');

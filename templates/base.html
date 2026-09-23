@@ -75,6 +75,10 @@
           </li>
         </ul>
         <div class="d-flex align-items-center text-white-50 small gap-2">
+          <span id="sysClock" class="me-2 text-white" title="Waktu server">
+            <i class="bi bi-clock"></i>
+            <span id="sysClockText">{{ server_now or '' }}</span>
+          </span>
           {% if session.get('logged_in') %}
           <span class="me-1 d-none d-md-inline"><i class="bi bi-person-circle"></i> {{ session.get('username') or 'user' }}</span>
           <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-warning" title="Logout">
@@ -147,5 +151,52 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   {% block extra_js %}{% endblock %}
+
+  <script>
+  (function(){
+    var el = document.getElementById('sysClockText');
+    if (!el) return;
+    var serverTs = {{ server_ts|default(0) }};
+    var clientAtLoad = Math.floor(Date.now() / 1000);
+    function pad(n){ return n < 10 ? '0'+n : ''+n; }
+    function tick(){
+      var now = serverTs ? (serverTs + (Math.floor(Date.now()/1000) - clientAtLoad)) : Math.floor(Date.now()/1000);
+      var d = new Date(now * 1000);
+      // tampilkan sesuai offset lokal browser dari epoch server (waktu server)
+      // format dari nilai epoch server yang di-advance
+      var y = d.getFullYear();
+      var m = pad(d.getMonth()+1);
+      var day = pad(d.getDate());
+      var h = pad(d.getHours());
+      var mi = pad(d.getMinutes());
+      var s = pad(d.getSeconds());
+      // Problem: getHours is local browser TZ. Prefer UTC components + note, or format from server string.
+      el.textContent = y + '-' + m + '-' + day + ' ' + h + ':' + mi + ':' + s;
+    }
+    // Better: parse server_now and tick local
+    var baseStr = el.textContent.trim();
+    var parts = baseStr.match(/(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/);
+    var baseMs = Date.now();
+    var baseServer = null;
+    if (parts) {
+      baseServer = new Date(
+        parseInt(parts[1],10), parseInt(parts[2],10)-1, parseInt(parts[3],10),
+        parseInt(parts[4],10), parseInt(parts[5],10), parseInt(parts[6],10)
+      ).getTime();
+    }
+    function tick2(){
+      if (baseServer == null) return;
+      var elapsed = Date.now() - baseMs;
+      var d = new Date(baseServer + elapsed);
+      function pad(n){ return n < 10 ? '0'+n : ''+n; }
+      el.textContent =
+        d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()) + ' ' +
+        pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    }
+    tick2();
+    setInterval(tick2, 1000);
+  })();
+  </script>
+
 </body>
 </html>

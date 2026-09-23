@@ -18,8 +18,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.11.1"
-
+APP_VERSION = "1.11.3"
 
 from flask import (
     Flask,
@@ -123,6 +122,46 @@ def verify_user(username: str, password: str) -> bool:
     return False
 
 
+
+def _valid_email(email: str) -> bool:
+    email = (email or "").strip().lower()
+    if len(email) < 5 or len(email) > 120:
+        return False
+    if "@" not in email or "." not in email.split("@")[-1]:
+        return False
+    # karakter dasar
+    import re as _re
+    return bool(_re.match(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$", email))
+
+
+def get_registered_email() -> str:
+    """Email registrasi instalasi (wajib)."""
+    try:
+        auth = load_auth()
+        e = (auth.get("email") or "").strip().lower()
+        if e:
+            return e
+        # fallback user pertama
+        for u in auth.get("users") or []:
+            e = (u.get("email") or "").strip().lower()
+            if e:
+                return e
+    except Exception:
+        pass
+    return ""
+
+
+def set_registered_email(email: str) -> None:
+    email = (email or "").strip().lower()
+    auth = load_auth()
+    auth["email"] = email
+    users = auth.get("users") or []
+    if users:
+        users[0]["email"] = email
+        auth["users"] = users
+    save_auth(auth)
+
+
 def login_required(fn):
     @wraps(fn)
     def wrapper(*args, **kwargs):
@@ -138,15 +177,20 @@ def login_required(fn):
 
 @app.before_request
 def _require_login():
-    # endpoint bebas login
-    open_eps = {"login", "static"}
+    # endpoint bebas login / registrasi email
+    open_eps = {"login", "logout", "register_email", "static"}
     if request.endpoint in open_eps or (request.endpoint or "").startswith("static"):
         return None
-    if session.get("logged_in"):
-        return None
-    if request.path.startswith("/api/"):
-        return jsonify({"ok": False, "error": "login required"}), 401
-    return redirect(url_for("login", next=request.path))
+    if not session.get("logged_in"):
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "login required"}), 401
+        return redirect(url_for("login", next=request.path))
+    # Sudah login: wajib punya email
+    if not get_registered_email():
+        if request.path.startswith("/api/"):
+            return jsonify({"ok": False, "error": "email required"}), 403
+        return redirect(url_for("register_email"))
+    return None
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -167,6 +211,41 @@ def login():
             return redirect(nxt)
         flash("Username atau password salah", "danger")
     return render_template("login.html")
+
+
+
+@app.route("/register-email", methods=["GET", "POST"])
+def register_email():
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+    current = get_registered_email()
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip().lower()
+        if not _valid_email(email):
+            flash("Format email tidak valid", "danger")
+        else:
+            set_registered_email(email)
+            flash(f"Email tersimpan: {email}", "success")
+            # kirim telemetry segera dengan email
+            try:
+                maybe_report(
+                    app_version=APP_VERSION,
+                    install_id=_get_or_create_install_id(),
+                    hwid=get_hwid(),
+                    license_mode=get_mode(),
+                    license_max_olts=max_olts(),
+                    olt_count=len(config.OLTS or []),
+                    email=email,
+                    force=True,
+                )
+            except Exception as e:
+                print(f"[TELEMETRY] after email: {e}")
+            return redirect(url_for("index"))
+    return render_template(
+        "register_email.html",
+        email=current,
+        username=session.get("username") or "",
+    )
 
 
 @app.route("/logout")
@@ -1191,6 +1270,28 @@ def settings():
             return redirect(url_for("settings"))
 
 
+        if action == "save_email":
+            email = (request.form.get("email") or "").strip().lower()
+            if not _valid_email(email):
+                flash("Format email tidak valid", "danger")
+            else:
+                set_registered_email(email)
+                flash(f"Email diperbarui: {email}", "success")
+                try:
+                    maybe_report(
+                        app_version=APP_VERSION,
+                        install_id=_get_or_create_install_id(),
+                        hwid=get_hwid(),
+                        license_mode=get_mode(),
+                        license_max_olts=max_olts(),
+                        olt_count=len(config.OLTS or []),
+                        email=email,
+                        force=True,
+                    )
+                except Exception:
+                    pass
+            return redirect(url_for("settings"))
+
         if action == "save_telemetry":
             en = request.form.get("telemetry_enabled") == "1"
             ep = (request.form.get("telemetry_endpoint") or "").strip()
@@ -1224,6 +1325,7 @@ def settings():
                 license_mode=get_mode(),
                 license_max_olts=max_olts(),
                 olt_count=len(config.OLTS or []),
+                email=get_registered_email(),
                 force=True,
             )
             if r.get("skipped"):
@@ -1296,6 +1398,7 @@ def settings():
         app_version=APP_VERSION,
         username=session.get("username") or "",
         telemetry=telemetry_load_cfg(),
+        registered_email=get_registered_email(),
     )
 
 
@@ -1828,6 +1931,7 @@ def _telemetry_boot():
                 license_mode=get_mode(),
                 license_max_olts=max_olts(),
                 olt_count=len(config.OLTS or []),
+                email=get_registered_email(),
                 force=False,
             )
         except Exception as e:

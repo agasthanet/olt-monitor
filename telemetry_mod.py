@@ -86,14 +86,20 @@ def build_payload(
     license_max_olts: int,
     olt_count: int,
     email: str = "",
+    full_name: str = "",
+    company: str = "",
+    whatsapp: str = "",
 ) -> dict:
     return {
-        "schema": 2,
+        "schema": 3,
         "app": "olt-monitor",
         "version": app_version,
         "install_id": install_id,
         "hwid": hwid,
         "email": (email or "").strip().lower()[:120],
+        "full_name": (full_name or "").strip()[:80],
+        "company": (company or "").strip()[:80],
+        "whatsapp": (whatsapp or "").strip()[:32],
         "license_mode": license_mode,
         "license_max_olts": int(license_max_olts or 0),
         "olt_count": int(olt_count or 0),
@@ -144,6 +150,9 @@ def maybe_report(
     license_max_olts: int,
     olt_count: int,
     email: str = "",
+    full_name: str = "",
+    company: str = "",
+    whatsapp: str = "",
     force: bool = False,
 ) -> dict:
     """
@@ -181,6 +190,9 @@ def maybe_report(
         license_max_olts=license_max_olts,
         olt_count=olt_count,
         email=email or "",
+        full_name=full_name or "",
+        company=company or "",
+        whatsapp=whatsapp or "",
     )
     ok, msg = send_ping(payload, endpoint)
     cfg["last_sent"] = now

@@ -19,7 +19,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.12.2"
+APP_VERSION = "1.12.3"
 
 from flask import (
     Flask,
@@ -45,7 +45,7 @@ from cli_hioso import restart_onu_hioso_cli
 from cli_hioso import fetch_hioso_cli
 from olt_health import refresh_health, get_cached_health
 from ping_mod import record_ping, get_last, get_history, get_all_last, ping_all_olts
-from telemetry_mod import load_cfg as telemetry_load_cfg, set_enabled as telemetry_set_enabled, maybe_report
+from telemetry_mod import load_cfg as telemetry_load_cfg, set_enabled as telemetry_set_enabled, maybe_report, sync_remote_license
 from license_mod import (
     get_hwid,
     get_mode,
@@ -1320,6 +1320,23 @@ def settings():
             return redirect(url_for("settings"))
 
 
+        if action == "sync_license_now":
+            try:
+                r = maybe_report(
+                    app_version=APP_VERSION,
+                    install_id=_get_or_create_install_id(),
+                    hwid=get_hwid(),
+                    license_mode=get_mode(),
+                    license_max_olts=max_olts(),
+                    olt_count=len(config.OLTS or []),
+                    force=True,
+                    **_telemetry_profile_kwargs(),
+                )
+                flash(f"Sync license: mode={get_mode()} max={max_olts()} detail={r.get('license') or r.get('msg')}", "success")
+            except Exception as e:
+                flash(f"Sync gagal: {e}", "danger")
+            return redirect(url_for("settings"))
+
         if action == "save_profile":
             full_name = (request.form.get("full_name") or "").strip()
             company = (request.form.get("company") or "").strip()
@@ -1961,6 +1978,15 @@ def _ping_loop():
                         refresh_health(o)
                     except Exception as he:
                         print(f"[HEALTH] {o.get('id')}: {he}")
+            # Sync license remote tiap ~60 detik
+            if _ping_loop._tick % 12 == 2:
+                try:
+                    cfg = telemetry_load_cfg()
+                    ep = (cfg.get("endpoint") or "")
+                    if ep:
+                        sync_remote_license(ep, _get_or_create_install_id(), get_hwid())
+                except Exception as le:
+                    print(f"[LICENSE] poll: {le}")
         except Exception as e:
             print(f"[PING] loop error: {e}")
         _time.sleep(5)

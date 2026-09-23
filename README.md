@@ -15,7 +15,7 @@ Repo: https://github.com/agasthanet/olt-monitor
 - Multi-vendor: ZTE C320 (SNMP), Hioso (SNMP), HS-EPT1004 / Airpo (CLI), Hioso HA7302 (CLI)
 - Status ONT, Rx/Tx, downtime, mapping ODP
 - Ping OLT + grafik latency, health (CPU/Mem bila SNMP support)
-- Background refresh, mode Trial (1 OLT) / Full (multi-OLT)
+- Background refresh, mode Trial (3 OLT) / Full (multi-OLT)
 
 ---
 
@@ -71,7 +71,7 @@ Dengan optimasi walk paralel, **10 OLT di 2 vCPU / 2 GB** biasanya cukup. Jika t
 
 - Jangan taruh di host yang sama dengan OLT jika CPU OLT sudah penuh  
 - Pastikan server monitor → OLT **routing/latency bagus** (timeout SNMP = UI terasa lambat)  
-- Mode license **Full** untuk multi-OLT (Trial max 1 OLT)  
+- Mode license **Full** untuk multi-OLT (Trial max 3 OLT)  
 - Container LXC / MikroTik: disarankan **≥ 2 GB RAM** (jangan 512 MB)
 
 

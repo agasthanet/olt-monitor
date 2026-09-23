@@ -136,15 +136,24 @@
       <div class="card-body">
         <p class="mb-1 small">Mode: <strong>{{ license_mode|upper }}</strong> — max <strong>{{ license_max_olts }}</strong> OLT</p>
         <p class="mb-2 small">HWID mesin ini:</p>
-        <div class="input-group input-group-sm mb-3">
+        <div class="input-group input-group-sm mb-2">
           <input type="text" class="form-control font-monospace" id="hwidBox" readonly value="{{ license_hwid }}">
           <button class="btn btn-outline-secondary" type="button" onclick="navigator.clipboard.writeText(document.getElementById('hwidBox').value)">Copy</button>
         </div>
+        <form method="post" class="mb-3" onsubmit="return confirm('Reset HWID?\nKey lama tidak valid lagi.\nLanjut?');">
+          <input type="hidden" name="action" value="reset_hwid">
+          <button type="submit" class="btn btn-sm btn-warning">
+            <i class="bi bi-arrow-repeat"></i> Reset HWID
+          </button>
+          <span class="small text-muted ms-1">pakai jika HWID kembar / pindah mesin</span>
+        </form>
+        <p class="small text-muted">Jangan copy folder <code>data/</code> antar mesin — HWID ikut ke-copy.</p>
+        <hr>
         {% if license_mode == 'full' %}
         <p class="small text-success mb-2">Aktif sejak: {{ license_info.activated_at or '-' }}</p>
         <form method="post" onsubmit="return confirm('Kembali ke Trial?')">
           <input type="hidden" name="action" value="deactivate_license">
-          <button type="submit" class="btn btn-sm btn-outline-warning">Deaktivasi (Trial)</button>
+          <button type="submit" class="btn btn-sm btn-outline-secondary">Deaktivasi (Trial)</button>
         </form>
         {% else %}
         <p class="small text-muted">Trial: max 1 OLT. Full: kelipatan 5 OLT. Kirim HWID ke admin untuk key.</p>
@@ -159,6 +168,46 @@
     </div>
 
     
+    
+    <div class="card shadow-sm mt-3">
+      <div class="card-header bg-white">
+        <h6 class="mb-0"><i class="bi bi-broadcast"></i> Telemetry (opsional)</h6>
+      </div>
+      <div class="card-body">
+        <p class="small text-muted">
+          <strong>Default: nonaktif.</strong> Jika diaktifkan, app mengirim data agregat
+          (versi, mode license, jumlah OLT, HWID/install_id, platform) ke server statistik.
+          <em>Tidak mengirim</em> IP OLT, community, password, serial ONU, atau nama pelanggan.
+        </p>
+        <form method="post" class="mb-2">
+          <input type="hidden" name="action" value="save_telemetry">
+          <div class="form-check mb-2">
+            <input class="form-check-input" type="checkbox" name="telemetry_enabled" value="1" id="telEn"
+              {% if telemetry and telemetry.enabled %}checked{% endif %}>
+            <label class="form-check-label" for="telEn">Aktifkan telemetry (opt-in)</label>
+          </div>
+          <label class="form-label small">Endpoint</label>
+          <input type="url" name="telemetry_endpoint" class="form-control form-control-sm mb-2"
+                 value="{{ (telemetry.endpoint if telemetry else '') or '' }}"
+                 placeholder="https://.../v1/ping">
+          <button type="submit" class="btn btn-sm btn-primary">Simpan</button>
+        </form>
+        {% if telemetry and telemetry.last_sent %}
+        <p class="small text-muted mb-1">
+          Kirim terakhir:
+          {% if telemetry.last_ok %}<span class="text-success">OK</span>{% else %}<span class="text-danger">gagal</span>{% endif %}
+          {% if telemetry.last_error %} — {{ telemetry.last_error }}{% endif %}
+        </p>
+        {% endif %}
+        <form method="post">
+          <input type="hidden" name="action" value="telemetry_ping">
+          <button type="submit" class="btn btn-sm btn-outline-secondary" {% if not (telemetry and telemetry.enabled) %}disabled{% endif %}>
+            Kirim test sekarang
+          </button>
+        </form>
+      </div>
+    </div>
+
     <div class="card shadow-sm mt-3">
       <div class="card-header bg-white">
         <h6 class="mb-0"><i class="bi bi-shield-lock"></i> Ganti Password</h6>

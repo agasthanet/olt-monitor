@@ -1,3 +1,8 @@
+## [1.12.4] — 2026-11-07
+
+### Changed
+- Grafik redaman (Rx power) disimpan **30 hari** (sebelumnya ~48 sample)
+
 ## [1.12.2] — 2026-09-23
 
 ### Changed

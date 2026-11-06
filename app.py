@@ -19,7 +19,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.12.3"
+APP_VERSION = "1.12.4"
 
 from flask import (
     Flask,
@@ -429,6 +429,12 @@ def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
 
         rx_history = list(prev.get("rx_history") or [])
         down_logs = list(prev.get("down_logs") or [])
+        # prune riwayat > 30 hari
+        try:
+            _cut = now_ts - (30 * 24 * 3600)
+            rx_history = [p for p in rx_history if isinstance(p, dict) and int(p.get("ts") or 0) >= _cut]
+        except Exception:
+            pass
 
         # Pertahankan nama bagus jika SNMP kali ini mengembalikan NA/kosong
         prev_name = (prev.get("name") or "").strip()
@@ -445,9 +451,17 @@ def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
             if o.rx_power is not None:
                 last_rx = float(o.rx_power)
                 rx_history.append({"ts": now_ts, "t": now_str, "rx": last_rx})
-                # keep last 48 samples
-                if len(rx_history) > 48:
-                    rx_history = rx_history[-48:]
+                # Simpan grafik redaman ~30 hari (berdasarkan timestamp)
+                # Default sample tiap background refresh (~30 mnt) → ~1440 titik / 30 hari
+                _RX_KEEP_SEC = 30 * 24 * 3600  # 30 hari
+                _RX_MAX_POINTS = 3000  # batas aman per ONT
+                cutoff = now_ts - _RX_KEEP_SEC
+                rx_history = [
+                    p for p in rx_history
+                    if isinstance(p, dict) and int(p.get("ts") or 0) >= cutoff
+                ]
+                if len(rx_history) > _RX_MAX_POINTS:
+                    rx_history = rx_history[-_RX_MAX_POINTS:]
         else:
             if prev_online:
                 last_downtime = now_str

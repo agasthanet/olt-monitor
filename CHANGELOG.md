@@ -1,3 +1,9 @@
+## [1.13.0] — 2026-11-09
+
+### Added
+- Notifikasi **perubahan Rx signifikan** (default ±3 dB) dengan **sumber alarm**: OLT · PON · ONU · nama ONT · serial · ODP
+- Panel alarm di dashboard + API `/api/alarms`
+
 ## [1.12.4] — 2026-11-07
 
 ### Changed

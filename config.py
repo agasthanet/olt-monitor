@@ -17,6 +17,11 @@ FIRMWARE_MODE = os.getenv("FIRMWARE_MODE", "auto")
 
 RX_GOOD = float(os.getenv("RX_GOOD", "-25.0"))
 RX_WARNING = float(os.getenv("RX_WARNING", "-28.0"))
+# Alarm jika |Δ Rx| >= threshold (dB) antar sample refresh
+RX_CHANGE_DB = float(os.getenv("RX_CHANGE_DB", "3.0"))
+# Simpan alarm maksimal (entry) & umur (hari)
+RX_ALARM_MAX = int(os.getenv("RX_ALARM_MAX", "200"))
+RX_ALARM_DAYS = int(os.getenv("RX_ALARM_DAYS", "7"))
 
 ODP_MAPPING_FILE = os.getenv("ODP_MAPPING_FILE", "data/odp_mapping.csv")
 ODP_NAME_MAPPING_FILE = os.getenv("ODP_NAME_MAPPING_FILE", "data/odp_mapping_by_name.csv")

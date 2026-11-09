@@ -19,7 +19,7 @@ import json
 import threading
 from pathlib import Path as _Path
 
-APP_VERSION = "1.12.4"
+APP_VERSION = "1.13.0"
 
 from flask import (
     Flask,
@@ -403,6 +403,106 @@ def _is_online_status(status: str) -> bool:
     return s in ("online", "working")
 
 
+
+# ---- RX change alarms ----
+_RX_ALARM_FILE = _Path(__file__).resolve().parent / "data" / "rx_alarms.json"
+
+
+def _load_rx_alarms() -> list:
+    try:
+        if _RX_ALARM_FILE.exists():
+            data = json.loads(_RX_ALARM_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+    except Exception as e:
+        print(f"[ALARM] load: {e}")
+    return []
+
+
+def _save_rx_alarms(alarms: list) -> None:
+    try:
+        _RX_ALARM_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _RX_ALARM_FILE.write_text(
+            json.dumps(alarms, ensure_ascii=False, indent=0),
+            encoding="utf-8",
+        )
+    except Exception as e:
+        print(f"[ALARM] save: {e}")
+
+
+def _prune_rx_alarms(alarms: list) -> list:
+    import time as _t
+    max_n = int(getattr(config, "RX_ALARM_MAX", 200) or 200)
+    days = int(getattr(config, "RX_ALARM_DAYS", 7) or 7)
+    cutoff = int(_t.time()) - days * 24 * 3600
+    out = [a for a in alarms if isinstance(a, dict) and int(a.get("ts") or 0) >= cutoff]
+    if len(out) > max_n:
+        out = out[-max_n:]
+    return out
+
+
+def get_recent_rx_alarms(limit: int = 50) -> list:
+    alarms = _prune_rx_alarms(_load_rx_alarms())
+    return list(reversed(alarms[-limit:]))
+
+
+def _emit_rx_change_alarm(o, prev_rx: float, new_rx: float, now_ts: int, now_str: str) -> None:
+    """Catat alarm perubahan Rx signifikan + sumber (OLT/PON/ONT/ODP)."""
+    delta = float(new_rx) - float(prev_rx)
+    thr = float(getattr(config, "RX_CHANGE_DB", 3.0) or 3.0)
+    if abs(delta) < thr:
+        return
+    direction = "memburuk" if delta < 0 else "membaik"
+    severity = "critical" if abs(delta) >= thr * 2 else "warning"
+    source_parts = []
+    if getattr(o, "olt_id", None):
+        source_parts.append(f"OLT {o.olt_id}")
+    try:
+        board = getattr(o, "board", None)
+        pon = getattr(o, "pon", None)
+        if board is not None and pon is not None:
+            source_parts.append(f"PON {board}/{pon}")
+        onu = getattr(o, "onu_id", None)
+        if onu is not None:
+            source_parts.append(f"ONU {onu}")
+    except Exception:
+        pass
+    name = (getattr(o, "name", None) or "").strip() or "—"
+    serial = (getattr(o, "serial", None) or "").strip() or "—"
+    odp = (getattr(o, "odp", None) or "").strip() or "Belum di-mapping"
+    source = " · ".join(source_parts) if source_parts else "OLT/PON tidak diketahui"
+    alarm = {
+        "ts": now_ts,
+        "t": now_str,
+        "type": "rx_change",
+        "severity": severity,
+        "direction": direction,
+        "message": (
+            f"Rx {direction}: {prev_rx:.2f} → {new_rx:.2f} dBm (Δ {delta:+.2f} dB)"
+        ),
+        "source": source,
+        "olt_id": getattr(o, "olt_id", None),
+        "board": getattr(o, "board", None),
+        "pon": getattr(o, "pon", None),
+        "onu_id": getattr(o, "onu_id", None),
+        "name": name,
+        "serial": serial,
+        "odp": odp,
+        "rx_prev": round(float(prev_rx), 2),
+        "rx_new": round(float(new_rx), 2),
+        "delta": round(float(delta), 2),
+        "threshold": thr,
+    }
+    alarms = _load_rx_alarms()
+    alarms.append(alarm)
+    alarms = _prune_rx_alarms(alarms)
+    _save_rx_alarms(alarms)
+    print(
+        f"[ALARM] Rx {direction} | {source} | {name} | {serial} | "
+        f"{prev_rx:.2f}→{new_rx:.2f} (Δ{delta:+.2f}) | ODP={odp}"
+    )
+
+
 def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
     """
     Track last_online / last_downtime / last_rx_power / rx_history / down_logs.
@@ -449,7 +549,14 @@ def apply_downtime_tracking(onts: List[OnuInfo]) -> List[OnuInfo]:
         if cur_online:
             last_online = now_str
             if o.rx_power is not None:
-                last_rx = float(o.rx_power)
+                new_rx_val = float(o.rx_power)
+                # Alarm perubahan signifikan vs sample sebelumnya
+                if last_rx is not None:
+                    try:
+                        _emit_rx_change_alarm(o, float(last_rx), new_rx_val, now_ts, now_str)
+                    except Exception as ae:
+                        print(f"[ALARM] emit: {ae}")
+                last_rx = new_rx_val
                 rx_history.append({"ts": now_ts, "t": now_str, "rx": last_rx})
                 # Simpan grafik redaman ~30 hari (berdasarkan timestamp)
                 # Default sample tiap background refresh (~30 mnt) → ~1440 titik / 30 hari
@@ -868,6 +975,8 @@ def index():
         status_badge=status_badge,
         rx_good=config.RX_GOOD,
         rx_warning=config.RX_WARNING,
+        rx_alarms=get_recent_rx_alarms(30),
+        rx_change_db=float(getattr(config, "RX_CHANGE_DB", 3.0) or 3.0),
     )
 
 
@@ -1547,6 +1656,20 @@ def api_ont_detail():
     })
 
 
+
+
+@app.route("/api/alarms")
+@login_required
+def api_alarms():
+    limit = int(request.args.get("limit") or 50)
+    return jsonify({"ok": True, "alarms": get_recent_rx_alarms(limit), "threshold_db": float(getattr(config, "RX_CHANGE_DB", 3.0) or 3.0)})
+
+
+@app.route("/api/alarms/clear", methods=["POST"])
+@login_required
+def api_alarms_clear():
+    _save_rx_alarms([])
+    return jsonify({"ok": True})
 
 @app.route("/api/ont/restart", methods=["POST"])
 def api_ont_restart():

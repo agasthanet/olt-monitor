@@ -70,6 +70,58 @@
   </div>
 </div>
 
+
+<!-- Alarm perubahan Rx signifikan -->
+{% if rx_alarms %}
+<div class="card shadow-sm mb-4 border-warning rx-alarms-panel">
+  <div class="card-header bg-warning bg-opacity-25 py-2 d-flex justify-content-between align-items-center">
+    <strong><i class="bi bi-bell-fill text-warning"></i> Alarm perubahan Rx
+      <span class="badge bg-warning text-dark">{{ rx_alarms|length }}</span>
+      <span class="text-muted small fw-normal ms-2">threshold ±{{ rx_change_db }} dB</span>
+    </strong>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="clearRxAlarms()">Clear</button>
+  </div>
+  <div class="card-body p-0">
+    <div class="table-responsive" style="max-height:280px;overflow:auto">
+      <table class="table table-sm table-hover mb-0 small">
+        <thead class="table-light sticky-top">
+          <tr>
+            <th>Waktu</th>
+            <th>Sumber</th>
+            <th>ONT / Serial</th>
+            <th>ODP</th>
+            <th>Rx sebelumnya</th>
+            <th>Rx sekarang</th>
+            <th>Δ</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in rx_alarms %}
+          <tr class="{% if a.severity == 'critical' %}table-danger{% elif a.direction == 'memburuk' %}table-warning{% else %}table-success{% endif %}">
+            <td class="text-nowrap">{{ a.t }}</td>
+            <td>
+              <span class="badge bg-dark">{{ a.source }}</span>
+            </td>
+            <td>
+              <div class="fw-semibold">{{ a.name }}</div>
+              <div class="text-muted font-monospace" style="font-size:.75rem">{{ a.serial }}</div>
+            </td>
+            <td>{{ a.odp }}</td>
+            <td>{{ '%.2f'|format(a.rx_prev) }} dBm</td>
+            <td>{{ '%.2f'|format(a.rx_new) }} dBm</td>
+            <td class="fw-bold {% if a.delta < 0 %}text-danger{% else %}text-success{% endif %}">
+              {{ '%+.2f'|format(a.delta) }} dB
+              <span class="text-muted small">({{ a.direction }})</span>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endif %}
+
 <!-- Ping + Health OLT + chart -->
 <div class="row g-3 mb-4">
   <div class="col-md-3">
